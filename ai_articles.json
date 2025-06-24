@@ -48,5 +48,15 @@
     "image_path": "images/ai_time_capsule/4_7749.webp",
     "publish_date": "2025-06-24T06:18:02.132677",
     "source": "ai.stanford.edu"
+  },
+  {
+    "id": "5_2932",
+    "title": "Reinforcement Learning: A Survey",
+    "summary": "Abstract This paper surveys the field of reinforcement learning from a computer-science perspective. It is written to be accessible to researchers familiar with machine learning. Both the historical basis of the field and a broad selection of current work are summarized. Reinforcement learning is the problem faced by an agent that learns behavior through trial-and-error interactions with a dynamic environment. The work described here has a resemblance to work in psychology, but differs considerably in the details and in the...",
+    "original_url": "https://www.jair.org/index.php/jair/article/view/10166",
+    "wayback_url": null,
+    "image_path": null,
+    "publish_date": "2025-06-24T06:36:56.931477",
+    "source": "jair.org"
   }
 ]
