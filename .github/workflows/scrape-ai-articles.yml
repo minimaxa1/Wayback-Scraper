@@ -3,8 +3,8 @@ name: Wayback AI Time Capsule Builder
 
 on:
   workflow_dispatch: # Allows manual trigger from GitHub UI (the "one button")
-  schedule:
-    - cron: '0 12 * * *' # Optional: Runs every day at 12:00 PM UTC
+  # schedule: # Uncomment this line and the cron expression if you want daily automation
+  #   - cron: '0 12 * * *' # Runs every day at 12:00 PM UTC
 
 jobs:
   build-ai-time-capsule:
@@ -17,10 +17,11 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.x'
+          python-version: '3.x' # Or '3.10' or '3.11' for more stability if needed
 
       - name: Install dependencies
         run: |
+          # Ensure lxml[html_clean] is here!
           pip install requests beautifulsoup4 newspaper3k Pillow lxml[html_clean]
 
       - name: Create images directory if it doesn't exist
