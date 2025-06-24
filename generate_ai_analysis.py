@@ -1,4 +1,4 @@
-# generate_ai_analysis.py (Final Aggressive Filtering & Source Refinement)
+# generate_ai_analysis.py (Final Polish - Stricter Filtering for Historical Relevance)
 
 import requests
 import newspaper
@@ -22,7 +22,6 @@ GOOGLE_CSE_API_URL = "https://www.googleapis.com/customsearch/v1"
 GEMINI_MODEL = "models/gemini-1.5-flash-latest" 
 
 GENERATED_ARTICLES_DIR = "generated_articles"
-IMAGES_DIR = "images/ai_time_capsule" 
 INDEX_FILE = "ai_analyses_index.json" 
 
 AI_KEYWORDS = ["artificial intelligence", "ai", "machine learning", "deep learning", "neural network", 
@@ -32,11 +31,13 @@ AI_KEYWORDS = ["artificial intelligence", "ai", "machine learning", "deep learni
                "pattern recognition", "human-computer interaction", "AI winter", "inference engine",
                "data mining", "predictive analytics", "AI expert", "robot", "intelligent agent",
                "knowledge-based system", "computational linguistics", "turing test", "expert system shell",
-               "AI programming", "AI applications", "logic programming", "neural processing", "Cyberpunk"] # Further expanded
+               "AI programming", "AI applications", "logic programming", "neural processing",
+               "expert systems", "knowledge engineering", "reasoning system", "intelligent robotics"] # Further expanded
 
-PUBLICATION_KEYWORDS = ["paper", "proceedings", "journal", "report", "technical report", "conference", "symposium", "magazine", "article", "thesis", "dissertation", "review", "abstract"] # Added "abstract"
+PUBLICATION_KEYWORDS = ["paper", "proceedings", "journal", "report", "technical report", "conference", "symposium", "magazine", "article", "thesis", "dissertation", "review", "abstract"] 
 
-MAX_SCRAPED_ARTICLES_FOR_SYNTHESIS = 2 # Increased to 2 for more diverse input, if found
+# --- REVERTED to 3 to allow more input for LLM synthesis, if found ---
+MAX_SCRAPED_ARTICLES_FOR_SYNTHESIS = 3 
 MAX_SEARCH_ATTEMPTS_PER_RUN = 100 
 REQUEST_TIMEOUT = 25      
 
@@ -45,7 +46,9 @@ PAST_YEAR_RANGE = (1985, 2000)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 os.makedirs(GENERATED_ARTICLES_DIR, exist_ok=True)
-os.makedirs(IMAGES_DIR, exist_ok=True) 
+
+# No need for IMAGES_DIR creation here if only using Unsplash URLs which aren't saved locally
+# You can remove `os.makedirs(IMAGES_DIR, exist_ok=True)` if you desire.
 
 if GOOGLE_API_KEY:
     try:
@@ -83,28 +86,39 @@ def fetch_google_cse_results(query, num_results=10):
         if 'items' in data:
             for item in data['items']:
                 if 'link' in item and 'title' in item:
-                    # Extended filter for non-article types and common modern corporate/blogging platforms
-                    # Goal: Reduce scraping of irrelevant modern content.
-                    if not any(ext in item['link'].lower() for ext in [
+                    # --- MORE AGGRESSIVE URL FILTERING ---
+                    # Exclude common modern tech company marketing/docs sites, even if they discuss old AI
+                    EXCLUDE_URL_TERMS = [
                         '.zip', '.exe', '.jpg', '.png', '.gif', '.mp3', '.mp4', '.avi', # Media files
-                        'forum', 'forums', 'discussion', 'archive.org', 'support.google.com', 
-                        'jobs.google.com', 'developers.google.com', 'policies.google.com', 
+                        'forum', 'forums', 'discussion', 'archive.org', # Community/Archival general (too broad often)
+                        'support.google.com', 'jobs.google.com', 'developers.google.com', 'policies.google.com', 
                         'privacy', 'legal', 'terms', 'about', 'contact', 'careers', 'sitemap.xml', 'robots.txt',
-                        # --- Aggressive filters for modern/irrelevant domains that slip through ---
                         'github.com', 'aws.amazon.com', 'azure.microsoft.com', 'cloud.google.com', 
                         'openai.com', 'perplexity.ai', 'reddit.com', 'twitter.com', 'facebook.com', 'youtube.com', 
                         'blog', '/blog/', 'newsroom', '/newsroom/', 'press', '/press/',
                         'login', 'signup', 'subscribe', 'cart', 'shop', 'cdn.', 'assets.', 'static.', 'media.',
-                        'docs.', 'api.', 'dev.', 'help.', 'solutions', 'products', 'services', # Documentation/Marketing/Product pages
-                        'events', 'webinars', 'tutorials', 'guides', 'overview', 'definition', 'what-is', # Common modern explainer pages
-                        'wikipedia.org' # Wikipedia is good for general info, but not primary source for "articles"
-                        ]):
-                        results.append({
-                            "title": item['title'],
-                            "link": item['link'],
-                            "snippet": item.get('snippet', ''),
-                            "source_domain": item.get('displayLink', '').replace('www.', '') 
-                        })
+                        'docs.', 'api.', 'dev.', 'help.', 'solutions', 'products', 'services', 
+                        'faq', 'events', 'webinars', 'tutorials', 'guides', 'overview', 'definition', 'what-is', 
+                        'wikipedia.org', 'wikidata.org', 'wikibooks.org', # Wikipedia is good for general info, but not primary source for "articles"
+                        'energy.gov', 'ifr.org', 'ri.cmu.edu' # Exclude specific sites that kept appearing as modern explainers
+                    ]
+                    
+                    if any(term in item['link'].lower() for term in EXCLUDE_URL_TERMS):
+                        logging.debug(f"  Skipping {item['link']}: Excluded by aggressive URL filter.")
+                        continue
+                    
+                    # Heuristic for too-short URL paths indicating not a deep article
+                    # Example: `domain.com/` or `domain.com/about/`
+                    if item['link'].count('/') <= 3 and any(d in item['link'].lower() for d in ['org', 'edu', 'com', 'net']):
+                        logging.debug(f"  Skipping {item['link']}: Appears to be a generic base domain or shallow path.")
+                        continue
+
+                    results.append({
+                        "title": item['title'],
+                        "link": item['link'],
+                        "snippet": item.get('snippet', ''),
+                        "source_domain": item.get('displayLink', '').replace('www.', '') 
+                    })
         return results
     except requests.exceptions.RequestException as e:
         logging.error(f"Error fetching Google CSE results: {e}")
@@ -115,7 +129,7 @@ def fetch_google_cse_results(query, num_results=10):
 
 def get_header_image_url(article_id):
     try:
-        random_unsplash_url = f"https://source.unsplash.com/random/1080x720?technology,abstract,futuristic,circuit,neural,network,data,ai,robotics,vintage,retro,history,cyberpunk,computing,classic&sig={random.randint(1,1000000)}" 
+        random_unsplash_url = f"https://source.unsplash.com/random/1080x720?technology,abstract,futuristic,circuit,neural,network,data,ai,robotics,vintage,retro,history,cyberpunk,computing,classic,digital,logic&sig={random.randint(1,1000000)}" 
         return random_unsplash_url
     except Exception as e:
         logging.warning(f"Could not get random Unsplash image: {e}")
@@ -389,20 +403,16 @@ def main():
         primary_scrape_date_str = f"{month_names[random_month_date.month - 1]} {random_month_date.year}"
         logging.info(f"Attempt {attempts}/{MAX_SEARCH_ATTEMPTS_PER_RUN}: Searching for raw articles from: {primary_scrape_date_str}")
         
-        # --- Aggressively Targeted Search Query for 1985-2000 Academic/Journal Content ---
         ai_search_terms = " OR ".join(f'"{kw}"' for kw in AI_KEYWORDS) 
         publication_search_terms = " OR ".join(f'"{kw}"' for kw in PUBLICATION_KEYWORDS) 
 
-        # --- REFINED TARGETED DOMAINS ---
-        # Excluded problematic general corporate/organizational sites.
-        # Focused on true academic/research/journal sources.
         targeted_domains = [
-            "aaai.org", "jair.org", "dl.acm.org", "acm.org", # Core AI Societies/Journals/Digital Libraries
-            "mit.edu", "stanford.edu", "cmu.edu", "berkeley.edu", # Leading Universities in AI research
-            "ieee.org", "spectrum.ieee.org", # IEEE - broader tech, but good for papers
-            "sciencedirect.com", "onlinelibrary.wiley.com", # Major Academic Publishers (might be paywalled)
-            "wired.com", "sciencedaily.com", # Early Tech News / Science News (late 90s only)
-            "ijcai.org", "nips.cc", "icml.cc" # Conference sites (for proceedings)
+            "aaai.org", "jair.org", "dl.acm.org", "acm.org", 
+            "mit.edu", "stanford.edu", "cmu.edu", "berkeley.edu", 
+            "ieee.org", "spectrum.ieee.org", 
+            "sciencedirect.com", "onlinelibrary.wiley.com", 
+            "wired.com", "sciencedaily.com", 
+            "ijcai.org", "nips.cc", "icml.cc" 
         ]
         site_operators = " OR ".join(f"site:{d}" for d in targeted_domains)
 
@@ -424,24 +434,21 @@ def main():
             if len(scraped_articles_for_synthesis) >= MAX_SCRAPED_ARTICLES_FOR_SYNTHESIS:
                 break 
 
-            # Pre-filter: Skip URLs that look like non-article pages (e.g., footers, navs, directories)
-            # Expanded and clarified filter terms
+            # --- Aggressive URL Filtering ---
             if any(term in result['link'].lower() for term in [
-                '.zip', '.exe', '.jpg', '.png', '.gif', '.mp3', '.mp4', '.avi', # Media files
+                '.zip', '.exe', '.jpg', '.png', '.gif', '.mp3', '.mp4', '.avi', 
                 'forum', 'forums', 'discussion', 'archive.org', 'support.google.com', 
                 'jobs.google.com', 'developers.google.com', 'policies.google.com', 
                 'privacy', 'legal', 'terms', 'about', 'contact', 'careers', 'sitemap.xml', 'robots.txt',
-                # --- Aggressive filters for modern corporate/blogging platforms ---
                 'github.com', 'aws.amazon.com', 'azure.microsoft.com', 'cloud.google.com', 
                 'openai.com', 'perplexity.ai', 'reddit.com', 'twitter.com', 'facebook.com', 'youtube.com', 
-                'newsroom', '/newsroom/', 'press', '/press/', # Common modern news/press structures
-                'blog', '/blog/', # Generic blog pages (often short content)
-                'cdn.', 'assets.', 'static.', 'media.', # Content delivery/static assets
-                'login', 'signup', 'subscribe', 'cart', 'shop', # E-commerce/account pages
-                'docs.', 'api.', 'dev.', 'help.', 'solutions', 'products', 'services', # Documentation/Marketing
-                'faq', 'events', 'webinars', 'tutorials', 'guides', 'overview', 'definition', 'what-is', # Explainer/Marketing
-                'wikipedia.org', 'wikidata.org', 'wikibooks.org' # Wikipedia/Wiki sites (good for info, not primary source for *synthesis*)
-                ]) or (result['link'].count('/') <= 3 and any(d in result['link'].lower() for d in ['org', 'edu', 'com', 'net'])): # Heuristic for too-short URL paths
+                'blog', '/blog/', 'newsroom', '/newsroom/', 'press', '/press/',
+                'login', 'signup', 'subscribe', 'cart', 'shop', 'cdn.', 'assets.', 'static.', 'media.',
+                'docs.', 'api.', 'dev.', 'help.', 'solutions', 'products', 'services', 
+                'faq', 'events', 'webinars', 'tutorials', 'guides', 'overview', 'definition', 'what-is', 
+                'wikipedia.org', 'wikidata.org', 'wikibooks.org', 
+                'energy.gov', 'ifr.org', 'ri.cmu.edu' # Specific modern sites that keep appearing
+                ]) or (result['link'].count('/') <= 3 and any(d in result['link'].lower() for d in ['org', 'edu', 'com', 'net'])): 
                 logging.debug(f"  Skipping {result['link']}: Appears to be a non-article page type or too generic base domain.")
                 continue
 
