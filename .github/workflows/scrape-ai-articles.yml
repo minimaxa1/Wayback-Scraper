@@ -1,0 +1,42 @@
+# .github/workflows/scrape-ai-articles.yml
+name: Wayback AI Time Capsule Builder
+
+on:
+  workflow_dispatch: # Allows manual trigger from GitHub UI (the "one button")
+  schedule:
+    - cron: '0 12 * * *' # Optional: Runs every day at 12:00 PM UTC
+
+jobs:
+  build-ai-time-capsule:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: |
+          pip install requests beautifulsoup4 newspaper3k Pillow
+
+      - name: Create images directory if it doesn't exist
+        run: mkdir -p images/ai_time_capsule
+
+      - name: Run AI article scraping script
+        run: python scrape_ai_articles.py
+        env:
+          PYTHONUNBUFFERED: 1 # Ensure logs are streamed real-time
+
+      - name: Commit and push changes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Automatically provided by GitHub Actions
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          git add ai_articles.json images/ai_time_capsule/ # Add the data file and image directory
+          git commit -m "Automated: Added new AI Time Capsule articles." || echo "No changes to commit" # '|| echo' prevents failure if no changes
+          git push
