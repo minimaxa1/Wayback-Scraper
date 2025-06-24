@@ -64,7 +64,9 @@ def get_random_past_date(start_year, end_year):
     end_date = datetime(end_year + 1, 1, 1) - timedelta(days=1)
     
     time_between_dates = end_date - start_date
-    days_between_dates = time_between dates.days
+    # CORRECTED LINE HERE:
+    days_between_dates = time_between_dates.days 
+    
     if days_between_dates <= 0:
         logging.warning(f"Invalid date range for random date generation: {start_year}-{end_year}")
         return start_date
