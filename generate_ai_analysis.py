@@ -1,4 +1,4 @@
-# generate_ai_analysis.py (Final Attempt: Google CSE + gemini-1.0-flash for Deep Synthesis)
+# generate_ai_analysis.py (Final, FINAL, Corrected `ai_search_terms` line)
 
 import requests
 import newspaper
@@ -15,24 +15,17 @@ import logging
 import google.generativeai as genai 
 
 # --- Configuration ---
-# Google Custom Search Engine (CSE) API credentials
-# These should be set as GitHub Secrets: GOOGLE_API_KEY, GOOGLE_CSE_ID
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")  # Your Google Cloud API Key
-GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID")    # Your Custom Search Engine ID
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")  
+GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID")    
 GOOGLE_CSE_API_URL = "https://www.googleapis.com/customsearch/v1"
 
-# Google Generative AI (Gemini) API configuration
-# Your GOOGLE_API_KEY is used here. Ensure "Generative Language API" is enabled
-# in your Google Cloud Project for this API Key.
 # --- IMPORTANT: Changed GEMINI_MODEL to 'gemini-1.0-flash' as requested ---
 GEMINI_MODEL = "gemini-1.0-flash" 
 
-# Data Storage paths
 GENERATED_ARTICLES_DIR = "generated_articles"
 IMAGES_DIR = "images/ai_time_capsule" 
 INDEX_FILE = "ai_analyses_index.json" 
 
-# Keywords for AI content detection and synthesis prompting
 AI_KEYWORDS = ["artificial intelligence", "ai", "machine learning", "deep learning", "neural network", 
                "robotics", "nlp", "computer vision", "AGI", "expert system", "neural computing", 
                "connectionism", "symbolic AI", "cognitive science", "knowledge representation",
@@ -41,26 +34,19 @@ AI_KEYWORDS = ["artificial intelligence", "ai", "machine learning", "deep learni
                "data mining", "predictive analytics", "cyberpunk", "AI expert", "robot", "intelligent agent",
                "knowledge-based system", "computational linguistics"] 
 
-# Keywords to prioritize specific publication types in Google CSE search queries
 PUBLICATION_KEYWORDS = ["paper", "proceedings", "journal", "report", "technical report", "conference", "symposium", "magazine", "article", "thesis", "dissertation"] 
 
-# Scraping & Search execution parameters
-MAX_SCRAPED_ARTICLES_FOR_SYNTHESIS = 1 # Changed to 1: Synthesize based on 1 strong article for faster runs
-MAX_SEARCH_ATTEMPTS_PER_RUN = 100 # Adjusted attempts: still high enough for old content, but quicker overall loop
-REQUEST_TIMEOUT = 25      # Timeout in seconds for all network requests
+MAX_SCRAPED_ARTICLES_FOR_SYNTHESIS = 1 
+MAX_SEARCH_ATTEMPTS_PER_RUN = 100 
+REQUEST_TIMEOUT = 25      
 
-# Historical Date Range for AI content search
 PAST_YEAR_RANGE = (1985, 2000) 
 
-# Configure logging for better visibility in GitHub Actions logs
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Ensure necessary directories exist
 os.makedirs(GENERATED_ARTICLES_DIR, exist_ok=True)
 os.makedirs(IMAGES_DIR, exist_ok=True) 
 
-# --- Google Gemini Client Setup ---
-# The GOOGLE_API_KEY is used for Gemini authentication.
 if GOOGLE_API_KEY:
     try:
         genai.configure(api_key=GOOGLE_API_KEY)
@@ -70,17 +56,13 @@ if GOOGLE_API_KEY:
 else:
     logging.warning("GOOGLE_API_KEY environment variable not set. LLM synthesis will not work.")
 
-# --- Utility Functions ---
-
 def get_random_past_month(start_year, end_year):
-    """Generates a random month and year within the specified range."""
     year = random.randint(start_year, end_year)
     month = random.randint(1, 12)
     return datetime(year, month, 1)
 
 def fetch_google_cse_results(query, num_results=10):
-    """Fetches search results from Google Custom Search JSON API."""
-    if not GOOGLE_API_KEY or not GOOGLE_CSE_ID: # Correct variable name
+    if not GOOGLE_API_KEY or not GOOGLE_CSE_ID: 
         logging.error("GOOGLE_API_KEY or GOOGLE_CSE_ID environment variables not set.")
         return []
 
@@ -98,10 +80,9 @@ def fetch_google_cse_results(query, num_results=10):
         data = response.json()
         
         results = []
-        if 'items' in data: 
+        if 'items' in data:
             for item in data['items']:
                 if 'link' in item and 'title' in item:
-                    # Filter out common non-article/non-document types based on URL extensions/paths
                     if not any(ext in item['link'].lower() for ext in [
                         '.zip', '.exe', '.jpg', '.png', '.gif', '.mp3', '.mp4', '.avi', 
                         'forum', 'forums', 'discussion', 'archive.org', 'support.google.com', 
@@ -127,7 +108,6 @@ def fetch_google_cse_results(query, num_results=10):
         return []
 
 def get_header_image_url(article_id):
-    """Generates a random image URL from Unsplash for the generated article header."""
     try:
         random_unsplash_url = f"https://source.unsplash.com/random/1080x720?technology,abstract,futuristic,circuit,neural,network,data,ai,robotics,vintage,retro,history,cyberpunk&sig={random.randint(1,1000000)}" 
         return random_unsplash_url
@@ -136,7 +116,6 @@ def get_header_image_url(article_id):
         return "https://images.unsplash.com/photo-1445160307478-288488e5da27?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NjUwNzN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3NTA2ODE1NzB8&ixlib=rb-4.1.0&q=80&w=1080" 
 
 def is_ai_relevant(title, text):
-    """Checks if the article title or text contains AI-related keywords."""
     title_lower = title.lower()
     text_lower = text.lower()
     for keyword in AI_KEYWORDS:
@@ -145,10 +124,9 @@ def is_ai_relevant(title, text):
     return False
 
 def scrape_full_article_text(article_url):
-    """Scrapes the full text of an article using newspaper3k."""
     try:
         config = newspaper.Config()
-        config.browser_user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        config.browser_user_agent = 'Mozilla/50 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         config.request_timeout = REQUEST_TIMEOUT
         config.fetch_images = False 
         config.MAX_FILE_MEM_KB = 5000 
@@ -167,7 +145,6 @@ def scrape_full_article_text(article_url):
             logging.info(f"Skipping {article_url}: Not AI relevant after full content check for synthesis.")
             return None
         
-        # Add a check for publish date being within the target range (from newspaper3k's parsing)
         if article.publish_date:
             target_start_date = datetime(PAST_YEAR_RANGE[0], 1, 1)
             target_end_date = datetime(PAST_YEAR_RANGE[1] + 1, 1, 1) - timedelta(days=1)
@@ -384,9 +361,8 @@ def main():
         
         if not found_target_model:
             logging.error(f"Configured model '{GEMINI_MODEL}' was NOT found in the list of models supporting generateContent for your API Key. Please check API key permissions/restrictions or Google Cloud billing setup.")
-            # Add a small delay then exit if model not found, to avoid repeated errors
             time.sleep(10)
-            return # Exit main if model not found
+            return 
         else:
             logging.info(f"Configured model '{GEMINI_MODEL}' IS found and supports generateContent. Proceeding.")
 
@@ -394,13 +370,12 @@ def main():
         logging.error(f"Failed to list Gemini models: {e}. This might indicate API key/billing issue.")
         logging.info("Exiting due to Gemini model listing failure.")
         time.sleep(10)
-        return # Exit main if model listing itself fails
+        return 
     # --- End Diagnostic ---
     
     month_names = ["January", "February", "March", "April", "May", "June", 
                    "July", "August", "September", "October", "November", "December"]
 
-    # We aim to generate 1 analysis article per run
     while analyses_added_this_run < 1 and attempts < MAX_SEARCH_ATTEMPTS_PER_RUN: 
         attempts += 1
         
@@ -409,7 +384,8 @@ def main():
         logging.info(f"Attempt {attempts}/{MAX_SEARCH_ATTEMPTS_PER_RUN}: Searching for raw articles from: {primary_scrape_date_str}")
         
         # --- Aggressively Targeted Search Query for 1985-2000 Academic/Journal Content ---
-        ai_search_terms = " OR ". đèn ".join(f'"{kw}"' for kw in AI_KEYWORDS) # Corrected format for join (space after OR)
+        # --- FIX: Corrected the `join` syntax here ---
+        ai_search_terms = " OR ".join(f'"{kw}"' for kw in AI_KEYWORDS) 
         publication_search_terms = " OR ".join(f'"{kw}"' for kw in PUBLICATION_KEYWORDS) 
 
         targeted_domains = [
@@ -440,16 +416,14 @@ def main():
             if len(scraped_articles_for_synthesis) >= MAX_SCRAPED_ARTICLES_FOR_SYNTHESIS:
                 break 
 
-            # Pre-filter: Skip URLs that look like non-article pages (e.g., footers, navs, directories)
             if any(term in result['link'].lower() for term in [
                 'forum', 'forums', 'discussion', 'comments', 'blog', 'index.html', '/tag/', '/category/', 
                 'masthead', 'contact', 'about', 'member', 'privacy', 'legal', 'jobs', 'careers', 
                 '.css', '.js', '.xml', 'robots.txt', 'login', 'signup', 'subscribe', 'cart', 'shop',
-                # Aggressive filtering for common modern corporate/blogging platforms
                 'github.com', 'aws.amazon.com', 'azure.microsoft.com', 'cloud.google.com', 
                 'openai.com', 'perplexity.ai', 'reddit.com', 'twitter.com', 'facebook.com', 'youtube.com', 
                 'newsroom', '/newsroom/', 'press', '/press/', 'cdn.', 'assets.', 'static.', 'media.'
-                ]) or (result['link'].count('/') <= 3 and any(d in result['link'].lower() for d in ['org', 'edu', 'com', 'net'])): # Simplified general domain check
+                ]) or (result['link'].count('/') <= 3 and any(d in result['link'].lower() for d in ['org', 'edu', 'com', 'net'])): 
                 logging.debug(f"  Skipping {result['link']}: Appears to be a non-article page type from URL pattern or too generic base domain.")
                 continue
 
