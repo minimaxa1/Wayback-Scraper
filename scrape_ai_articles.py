@@ -17,7 +17,7 @@ GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID")    # Your Custom Search Engine ID
 
 GOOGLE_CSE_API_URL = "https://www.googleapis.com/customsearch/v1"
 
-AI_KEYWORDS = ["artificial intelligence", "ai", "machine learning", "deep learning", "neural network", "robotics", "nlp", "computer vision", "AGI", "Cyber", "VR", "Cyberpunk,]
+AI_KEYWORDS = ["artificial intelligence", "ai", "machine learning", "deep learning", "neural network", "robotics", "nlp", "computer vision", "AGI", "Cyber", "VR", "Cyberpunk",]
 DATA_FILE = "ai_articles.json"
 IMAGES_DIR = "images/ai_time_capsule"
 
