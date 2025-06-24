@@ -1,4 +1,4 @@
-# scrape_ai_articles.py (Third Revision for Older Content)
+# scrape_ai_articles.py (Fourth Revision: Targeted Domains)
 import requests
 from bs4 import BeautifulSoup 
 import newspaper
@@ -13,29 +13,46 @@ import logging
 
 # --- Configuration ---
 TARGET_DOMAINS = [
-    # Primary tech news (less likely to have deep content before ~1995-2000)
-    "techcrunch.com", # Started 2005
-    "engadget.com",   # Started 2004
-    "cnet.com",       # Started 1994 (might have some from late 90s)
-    "arstechnica.com",# Started 1998 (might have some from late 90s)
-    "wired.com",      # Started 1993 (better chance for 90s content)
+    # Top candidates based on your search results, starting earlier or being very relevant
+    "kurzweilai.net",       # Excellent candidate, captures from 2001
+    "ai-depot.com",         # Excellent candidate, captures from 2001
+    "generation5.org",      # Good candidate, captures from 2000
+    "sciencedaily.com",     # Captures from 1996, broad science news, likely some AI
+    "alife.org",            # International Society of Artificial Life, captures from 1998, highly relevant
+    "inform.com",           # Captures from 1998, broader news platform, might have AI
+
+    # Other relevant candidates from your list (some might start later or be niche)
+    "phys.org",             # Science news, captures from 2002
+    "esciencenews.com",     # Science news, captures from 2008
+    "aihub.org",            # AI focused, captures from 2008
+    "agi-08.org",           # Specific conference, captures from 2007, might have papers
+    "vieartificielle.com",  # AI focused, captures from 2001
+    "newstrove.com",        # News aggregator, captures from 2000
+    "silobreaker.com",      # News aggregator, captures from 2005
+    "gamedev.net",          # Game AI might be present, captures from 1999
+    "oreillynet.com",       # O'Reilly technical content, captures from 2000
+    "advogato.org",         # Open source tech community, captures from 1999
+    "webindia123.com",      # General news portal, captures from 2000 (lower relevance chance)
+    "nursingtimes.net",     # Unlikely, but AI in health tech could exist
+    "psychology.about.com", # Psychology of AI? Unlikely direct news, but possible
     
-    # More academic/institutional, better chance for older content
-    "spectrum.ieee.org", # Good bet for older tech/engineering discussions
-    "ieee.org",          # Broader IEEE site
-    "mit.edu",           # MIT - strong presence in early web, research papers
-    "stanford.edu",      # Stanford - similar to MIT
-    # Add more if you find them: e.g., early tech companies' archives, research labs
+    # Original domains that might still contribute to later years
+    "wired.com",            # Captures from 1993, good for late 90s onwards
+    "cnet.com",             # Captures from 1994, good for late 90s onwards
+    "arstechnica.com",      # Captures from 1998, good for late 90s onwards
+    "spectrum.ieee.org",    # Good for more academic/deep tech, older captures
 ]
-AI_KEYWORDS = ["artificial intelligence", "ai", "machine learning", "deep learning", "neural network", "robotics", "nlp", "computer vision"]
+
+AI_KEYWORDS = ["artificial intelligence", "ai", "machine learning", "deep learning", "neural network", "robotics", "nlp", "computer vision", "AGI", "Cyber", "Cyberpunk", "Virtual reality"] # Added AGI
 DATA_FILE = "ai_articles.json"
 IMAGES_DIR = "images/ai_time_capsule"
 
 # --- IMPORTANT CHANGES FOR DATE RANGE AND TIMEOUTS ---
 MAX_ARTICLES_PER_RUN = 1  # Aim for just 1 article per successful run, to maximize completion
-MAX_DAILY_ATTEMPTS = 100  # More attempts to find content across random dates
+MAX_DAILY_ATTEMPTS = 150  # Increased attempts, as the new domains are more likely to have hits
 REQUEST_TIMEOUT = 30      # Keep increased timeout for network requests
-PAST_YEAR_RANGE = (1985, 2000) # User requested range: 1985-2000
+# Adjusted: Start with a range that many of your found domains are active in
+PAST_YEAR_RANGE = (1996, 2016) 
 WAYBACK_CDX_API = "http://web.archive.org/cdx/search/cdx"
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -47,7 +64,7 @@ def get_random_past_date(start_year, end_year):
     end_date = datetime(end_year + 1, 1, 1) - timedelta(days=1)
     
     time_between_dates = end_date - start_date
-    days_between_dates = time_between_dates.days
+    days_between_dates = time_between dates.days
     if days_between_dates <= 0:
         logging.warning(f"Invalid date range for random date generation: {start_year}-{end_year}")
         return start_date
@@ -55,13 +72,12 @@ def get_random_past_date(start_year, end_year):
     random_date = start_date + timedelta(days=random_number_of_days)
     return random_date
 
-def fetch_wayback_snapshots(domain, date_str, limit=50): # Limit to 50 snapshots from CDX API
-    """Fetches potential Wayback Machine snapshots for a domain on a specific date."""
+def fetch_wayback_snapshots(domain, date_str, limit=50):
     params = {
-        "url": f"{domain}/*",
+        "url": f"{domain}/*", # Query for all URLs under the domain
         "from": date_str,
         "to": date_str,
-        "limit": limit, # Keep this lower for older, potentially non-existent data
+        "limit": limit,
         "output": "json",
         "collapse": "urlkey", 
         "filter": ["statuscode:200", "!mimetype:image/jpeg", "!mimetype:image/png"],
@@ -73,7 +89,7 @@ def fetch_wayback_snapshots(domain, date_str, limit=50): # Limit to 50 snapshots
         response.raise_for_status() 
         data = response.json()
         
-        if data and data[0] and data[0][0] == 'urlkey': # Skip header row
+        if data and data[0] and data[0][0] == 'urlkey':
             data = data[1:]
         
         snapshots = []
@@ -195,7 +211,6 @@ def main():
         target_date_str = target_date.strftime("%Y%m%d")
         logging.info(f"Attempt {attempts}/{MAX_DAILY_ATTEMPTS}: Searching for articles from: {target_date.strftime('%Y-%m-%d')}")
         
-        # Randomize domains each attempt to distribute load and try different sources
         random.shuffle(TARGET_DOMAINS)
         
         for domain in TARGET_DOMAINS:
@@ -203,13 +218,13 @@ def main():
                 break
             
             logging.info(f"  Fetching snapshots from {domain}...")
-            snapshots = fetch_wayback_snapshots(domain, target_date_str, limit=50) # Keep limit reasonable
+            snapshots = fetch_wayback_snapshots(domain, target_date_str, limit=50) 
             if not snapshots:
                 logging.info(f"  No snapshots found for {domain} on {target_date_str}.")
-                time.sleep(1) # Small pause even if no snapshots found for this domain
+                time.sleep(1) 
                 continue
 
-            random.shuffle(snapshots) # Shuffle snapshots found for variety
+            random.shuffle(snapshots)
             
             for i, snap in enumerate(snapshots):
                 if articles_added_this_run >= MAX_ARTICLES_PER_RUN:
@@ -218,12 +233,9 @@ def main():
                     logging.debug(f"  Skipping already processed: {snap['original_url']}")
                     continue
                 
-                # Pre-filter by URL/Title guess for basic AI keywords
                 potential_ai = False
-                # Prioritize URLs that might explicitly mention AI in path
                 if any(keyword in snap['original_url'].lower() for keyword in AI_KEYWORDS):
                     potential_ai = True
-                # Fallback to title guess if URL path doesn't indicate AI
                 elif any(keyword in snap['title_guess'].lower() for keyword in AI_KEYWORDS):
                      potential_ai = True
 
@@ -243,9 +255,9 @@ def main():
                     if articles_added_this_run >= MAX_ARTICLES_PER_RUN:
                         break
                 
-                time.sleep(2) # Increased pause between article fetches
+                time.sleep(2) 
 
-        time.sleep(5) # Increased pause between different random date attempts / domains
+        time.sleep(5) 
         
     save_articles(existing_articles)
     logging.info(f"Finished run. Added {articles_added_this_run} new articles. Total articles in file: {len(existing_articles)}")
