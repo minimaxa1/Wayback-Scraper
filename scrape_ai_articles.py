@@ -52,7 +52,7 @@ MAX_ARTICLES_PER_RUN = 1  # Aim for just 1 article per successful run, to maximi
 MAX_DAILY_ATTEMPTS = 150  # Increased attempts, as the new domains are more likely to have hits
 REQUEST_TIMEOUT = 30      # Keep increased timeout for network requests
 # Adjusted: Start with a range that many of your found domains are active in
-PAST_YEAR_RANGE = (1996, 2016) 
+PAST_YEAR_RANGE = (1980, 2000) 
 WAYBACK_CDX_API = "http://web.archive.org/cdx/search/cdx"
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
