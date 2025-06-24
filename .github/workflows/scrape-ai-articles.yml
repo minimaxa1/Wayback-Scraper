@@ -1,43 +1,66 @@
 # .github/workflows/scrape-ai-articles.yml
+# This workflow automates the scraping of AI-related articles from the Wayback Machine
+# and commits them to your GitHub repository for display on GitHub Pages.
+
 name: Wayback AI Time Capsule Builder
 
 on:
-  workflow_dispatch: # Allows manual trigger from GitHub UI (the "one button")
-  # schedule: # Uncomment this line and the cron expression if you want daily automation
-  #   - cron: '0 12 * * *' # Runs every day at 12:00 PM UTC
+  workflow_dispatch: # Allows manual triggering of the workflow from the GitHub Actions tab (the "one button" trigger)
+  # Uncomment the 'schedule' block below to enable daily automated runs.
+  # The 'cron' expression defines when the workflow should run.
+  # For example, '0 12 * * *' means "at 12:00 PM UTC every day".
+  # schedule:
+  #   - cron: '0 12 * * *'
 
 jobs:
   build-ai-time-capsule:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest # Specifies the operating system for the runner
+
+    # CRITICAL: Grant write permissions for the GITHUB_TOKEN.
+    # This is necessary for the workflow to be able to commit and push files
+    # (ai_articles.json and images) back to your repository.
+    permissions:
+      contents: write # Allows the workflow to write to the repository's contents
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repository # Step 1: Clones your repository into the runner's environment
         uses: actions/checkout@v3
 
-      - name: Set up Python
+      - name: Set up Python # Step 2: Configures the Python environment on the runner
         uses: actions/setup-python@v4
         with:
-          python-version: '3.x' # Or '3.10' or '3.11' for more stability if needed
+          python-version: '3.x' # Uses the latest available Python 3 version.
+                                # You can specify a more stable version like '3.10' or '3.11' if you encounter compatibility issues.
 
-      - name: Install dependencies
+      - name: Install dependencies # Step 3: Installs all required Python libraries
         run: |
-          # Ensure lxml[html_clean] is here!
           pip install requests beautifulsoup4 newspaper3k Pillow lxml[html_clean]
+          # 'lxml[html_clean]' is crucial to fix the ImportError encountered previously with newspaper3k.
 
-      - name: Create images directory if it doesn't exist
+      - name: Create images directory if it doesn't exist # Step 4: Ensures the directory for storing images is present
         run: mkdir -p images/ai_time_capsule
 
-      - name: Run AI article scraping script
+      - name: Run AI article scraping script # Step 5: Executes your Python scraping script
         run: python scrape_ai_articles.py
         env:
-          PYTHONUNBUFFERED: 1 # Ensure logs are streamed real-time
+          PYTHONUNBUFFERED: 1 # Ensures that Python's output is streamed immediately to the logs, aiding in debugging.
 
-      - name: Commit and push changes
+      - name: Commit and push changes # Step 6: Stages, commits, and pushes the newly generated data and images
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Automatically provided by GitHub Actions
+          # The GITHUB_TOKEN is automatically provided by GitHub Actions for authentication.
+          # Its permissions are controlled by the 'permissions' block above.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config user.name "GitHub Actions Bot"
-          git config user.email "actions@github.com"
-          git add ai_articles.json images/ai_time_capsule/ # Add the data file and image directory
-          git commit -m "Automated: Added new AI Time Capsule articles." || echo "No changes to commit" # '|| echo' prevents failure if no changes
+          git config user.name "GitHub Actions Bot" # Sets the committer name for the Git commit
+          git config user.email "actions@github.com" # Sets the committer email for the Git commit
+          
+          # Adds the generated JSON data file and the image directory to Git's staging area
+          git add ai_articles.json images/ai_time_capsule/ 
+          
+          # Attempts to commit the changes.
+          # '|| echo "No changes to commit"' ensures the step doesn't fail if no new articles/images were added,
+          # preventing the workflow from stopping unnecessarily.
+          git commit -m "Automated: Added new AI Time Capsule articles." || echo "No changes to commit" 
+          
+          # Pushes the committed changes back to your GitHub repository.
           git push
