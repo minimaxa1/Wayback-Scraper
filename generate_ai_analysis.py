@@ -1,4 +1,4 @@
-# generate_ai_analysis.py (Final Polish - Stricter Filtering for Historical Relevance)
+# generate_ai_analysis.py (Ultimate Aggressive Filtering & Source Prioritization)
 
 import requests
 import newspaper
@@ -32,12 +32,15 @@ AI_KEYWORDS = ["artificial intelligence", "ai", "machine learning", "deep learni
                "data mining", "predictive analytics", "AI expert", "robot", "intelligent agent",
                "knowledge-based system", "computational linguistics", "turing test", "expert system shell",
                "AI programming", "AI applications", "logic programming", "neural processing",
-               "expert systems", "knowledge engineering", "reasoning system", "intelligent robotics"] # Further expanded
+               "expert systems", "knowledge engineering", "reasoning system", "intelligent robotics",
+               "automated reasoning", "theorem proving", "computer chess", "speech recognition", "image processing",
+               "robot vision"] # Further expanded, focusing on older terms
 
-PUBLICATION_KEYWORDS = ["paper", "proceedings", "journal", "report", "technical report", "conference", "symposium", "magazine", "article", "thesis", "dissertation", "review", "abstract"] 
+# Prioritize "paper" and "proceedings" for older academic content
+PUBLICATION_KEYWORDS = ["paper", "proceedings", "journal", "report", "technical report", "conference", "symposium", "thesis", "dissertation", "review", "abstract"] 
+# Removed "magazine" and "article" from primary publication keywords to reduce generic web content
 
-# --- REVERTED to 3 to allow more input for LLM synthesis, if found ---
-MAX_SCRAPED_ARTICLES_FOR_SYNTHESIS = 3 
+MAX_SCRAPED_ARTICLES_FOR_SYNTHESIS = 3 # Increased to 3 again for richer input, now that filtering is stricter
 MAX_SEARCH_ATTEMPTS_PER_RUN = 100 
 REQUEST_TIMEOUT = 25      
 
@@ -46,9 +49,6 @@ PAST_YEAR_RANGE = (1985, 2000)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 os.makedirs(GENERATED_ARTICLES_DIR, exist_ok=True)
-
-# No need for IMAGES_DIR creation here if only using Unsplash URLs which aren't saved locally
-# You can remove `os.makedirs(IMAGES_DIR, exist_ok=True)` if you desire.
 
 if GOOGLE_API_KEY:
     try:
@@ -86,8 +86,7 @@ def fetch_google_cse_results(query, num_results=10):
         if 'items' in data:
             for item in data['items']:
                 if 'link' in item and 'title' in item:
-                    # --- MORE AGGRESSIVE URL FILTERING ---
-                    # Exclude common modern tech company marketing/docs sites, even if they discuss old AI
+                    # --- EVEN MORE AGGRESSIVE URL FILTERING ---
                     EXCLUDE_URL_TERMS = [
                         '.zip', '.exe', '.jpg', '.png', '.gif', '.mp3', '.mp4', '.avi', # Media files
                         'forum', 'forums', 'discussion', 'archive.org', # Community/Archival general (too broad often)
@@ -99,18 +98,21 @@ def fetch_google_cse_results(query, num_results=10):
                         'login', 'signup', 'subscribe', 'cart', 'shop', 'cdn.', 'assets.', 'static.', 'media.',
                         'docs.', 'api.', 'dev.', 'help.', 'solutions', 'products', 'services', 
                         'faq', 'events', 'webinars', 'tutorials', 'guides', 'overview', 'definition', 'what-is', 
-                        'wikipedia.org', 'wikidata.org', 'wikibooks.org', # Wikipedia is good for general info, but not primary source for "articles"
-                        'energy.gov', 'ifr.org', 'ri.cmu.edu' # Exclude specific sites that kept appearing as modern explainers
+                        'wikipedia.org', 'wikidata.org', 'wikibooks.org', # Wikipedia/Wiki sites
+                        'energy.gov', 'ifr.org', 'ri.cmu.edu', # Specific problematic modern sites
+                        'youtube.com', 'youtu.be', 'vimeo.com', # Video platforms
+                        '/tag/', '/category/', '/author/', '/feed/', '/rss/', # Common blog/taxonomy structures
+                        'directory', 'index', 'listing', 'search', 'results', 'login', 'signup' # General site elements
                     ]
                     
                     if any(term in item['link'].lower() for term in EXCLUDE_URL_TERMS):
                         logging.debug(f"  Skipping {item['link']}: Excluded by aggressive URL filter.")
                         continue
                     
-                    # Heuristic for too-short URL paths indicating not a deep article
-                    # Example: `domain.com/` or `domain.com/about/`
-                    if item['link'].count('/') <= 3 and any(d in item['link'].lower() for d in ['org', 'edu', 'com', 'net']):
-                        logging.debug(f"  Skipping {item['link']}: Appears to be a generic base domain or shallow path.")
+                    # Heuristic: If URL path has very few slashes, it's often a main page or shallow, not a deep article.
+                    # This helps filter out homepages, "about us", etc.
+                    if item['link'].count('/') <= 3 and not any(d in item['link'].lower() for d in ['paper', 'article', 'journal', 'report', 'proceedings']):
+                        logging.debug(f"  Skipping {item['link']}: Appears to be a generic base domain or shallow path (few slashes).")
                         continue
 
                     results.append({
@@ -129,7 +131,7 @@ def fetch_google_cse_results(query, num_results=10):
 
 def get_header_image_url(article_id):
     try:
-        random_unsplash_url = f"https://source.unsplash.com/random/1080x720?technology,abstract,futuristic,circuit,neural,network,data,ai,robotics,vintage,retro,history,cyberpunk,computing,classic,digital,logic&sig={random.randint(1,1000000)}" 
+        random_unsplash_url = f"https://source.unsplash.com/random/1080x720?technology,abstract,futuristic,circuit,neural,network,data,ai,robotics,vintage,retro,history,cyberpunk,computing,classic,digital,logic,processor,intellectual&sig={random.randint(1,1000000)}" 
         return random_unsplash_url
     except Exception as e:
         logging.warning(f"Could not get random Unsplash image: {e}")
@@ -434,7 +436,6 @@ def main():
             if len(scraped_articles_for_synthesis) >= MAX_SCRAPED_ARTICLES_FOR_SYNTHESIS:
                 break 
 
-            # --- Aggressive URL Filtering ---
             if any(term in result['link'].lower() for term in [
                 '.zip', '.exe', '.jpg', '.png', '.gif', '.mp3', '.mp4', '.avi', 
                 'forum', 'forums', 'discussion', 'archive.org', 'support.google.com', 
@@ -447,7 +448,7 @@ def main():
                 'docs.', 'api.', 'dev.', 'help.', 'solutions', 'products', 'services', 
                 'faq', 'events', 'webinars', 'tutorials', 'guides', 'overview', 'definition', 'what-is', 
                 'wikipedia.org', 'wikidata.org', 'wikibooks.org', 
-                'energy.gov', 'ifr.org', 'ri.cmu.edu' # Specific modern sites that keep appearing
+                'energy.gov', 'ifr.org', 'ri.cmu.edu' 
                 ]) or (result['link'].count('/') <= 3 and any(d in result['link'].lower() for d in ['org', 'edu', 'com', 'net'])): 
                 logging.debug(f"  Skipping {result['link']}: Appears to be a non-article page type or too generic base domain.")
                 continue
