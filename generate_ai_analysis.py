@@ -1,4 +1,4 @@
-# generate_ai_analysis.py (Final Polish: Model Name Fix + Stricter Historical Filters)
+# generate_ai_analysis.py (Final Aggressive Filtering & Source Refinement)
 
 import requests
 import newspaper
@@ -19,25 +19,24 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID")    
 GOOGLE_CSE_API_URL = "https://www.googleapis.com/customsearch/v1"
 
-# --- FIX: Changed GEMINI_MODEL to its full, correct name as per genai.list_models() output ---
-GEMINI_MODEL = "models/gemini-1.5-flash-latest" # Using the latest flash model name
+GEMINI_MODEL = "models/gemini-1.5-flash-latest" 
 
 GENERATED_ARTICLES_DIR = "generated_articles"
 IMAGES_DIR = "images/ai_time_capsule" 
 INDEX_FILE = "ai_analyses_index.json" 
 
-# --- Refined AI Keywords (removed "cyberpunk" as it was leading to irrelevant modern content) ---
 AI_KEYWORDS = ["artificial intelligence", "ai", "machine learning", "deep learning", "neural network", 
                "robotics", "nlp", "computer vision", "AGI", "expert system", "neural computing", 
                "connectionism", "symbolic AI", "cognitive science", "knowledge representation",
                "fuzzy logic", "genetic algorithms", "AI system", "cybernetics", "automaton",
                "pattern recognition", "human-computer interaction", "AI winter", "inference engine",
                "data mining", "predictive analytics", "AI expert", "robot", "intelligent agent",
-               "knowledge-based system", "computational linguistics", "turing test", "expert system shell"] # Added more academic/historical terms
+               "knowledge-based system", "computational linguistics", "turing test", "expert system shell",
+               "AI programming", "AI applications", "logic programming", "neural processing"] # Further expanded
 
-PUBLICATION_KEYWORDS = ["paper", "proceedings", "journal", "report", "technical report", "conference", "symposium", "magazine", "article", "thesis", "dissertation", "review"] # Added "review"
+PUBLICATION_KEYWORDS = ["paper", "proceedings", "journal", "report", "technical report", "conference", "symposium", "magazine", "article", "thesis", "dissertation", "review", "abstract"] # Added "abstract"
 
-MAX_SCRAPED_ARTICLES_FOR_SYNTHESIS = 1 # Keep at 1 for faster synthesis and to manage LLM costs
+MAX_SCRAPED_ARTICLES_FOR_SYNTHESIS = 2 # Increased to 2 for more diverse input, if found
 MAX_SEARCH_ATTEMPTS_PER_RUN = 100 
 REQUEST_TIMEOUT = 25      
 
@@ -87,17 +86,18 @@ def fetch_google_cse_results(query, num_results=10):
                     # Extended filter for non-article types and common modern corporate/blogging platforms
                     # Goal: Reduce scraping of irrelevant modern content.
                     if not any(ext in item['link'].lower() for ext in [
-                        '.zip', '.exe', '.jpg', '.png', '.gif', '.mp3', '.mp4', '.avi', 
+                        '.zip', '.exe', '.jpg', '.png', '.gif', '.mp3', '.mp4', '.avi', # Media files
                         'forum', 'forums', 'discussion', 'archive.org', 'support.google.com', 
                         'jobs.google.com', 'developers.google.com', 'policies.google.com', 
                         'privacy', 'legal', 'terms', 'about', 'contact', 'careers', 'sitemap.xml', 'robots.txt',
-                        # --- Aggressive filters for modern/irrelevant domains based on previous logs ---
+                        # --- Aggressive filters for modern/irrelevant domains that slip through ---
                         'github.com', 'aws.amazon.com', 'azure.microsoft.com', 'cloud.google.com', 
                         'openai.com', 'perplexity.ai', 'reddit.com', 'twitter.com', 'facebook.com', 'youtube.com', 
-                        'newsroom', '/newsroom/', 'press', '/press/', 'cdn.', 'assets.', 'static.', 'media.',
-                        'shop', 'store', 'product', 'buy', 'learn/what-is', # Avoid marketing explainers
-                        'docs.', 'api.', 'dev.', 'help.', 'support.', # Avoid documentation/api refs
-                        'faq', 'contactus', 'careers', 'events', 'webinars' # Avoid common non-article pages
+                        'blog', '/blog/', 'newsroom', '/newsroom/', 'press', '/press/',
+                        'login', 'signup', 'subscribe', 'cart', 'shop', 'cdn.', 'assets.', 'static.', 'media.',
+                        'docs.', 'api.', 'dev.', 'help.', 'solutions', 'products', 'services', # Documentation/Marketing/Product pages
+                        'events', 'webinars', 'tutorials', 'guides', 'overview', 'definition', 'what-is', # Common modern explainer pages
+                        'wikipedia.org' # Wikipedia is good for general info, but not primary source for "articles"
                         ]):
                         results.append({
                             "title": item['title'],
@@ -115,7 +115,7 @@ def fetch_google_cse_results(query, num_results=10):
 
 def get_header_image_url(article_id):
     try:
-        random_unsplash_url = f"https://source.unsplash.com/random/1080x720?technology,abstract,futuristic,circuit,neural,network,data,ai,robotics,vintage,retro,history,cyberpunk,computing&sig={random.randint(1,1000000)}" 
+        random_unsplash_url = f"https://source.unsplash.com/random/1080x720?technology,abstract,futuristic,circuit,neural,network,data,ai,robotics,vintage,retro,history,cyberpunk,computing,classic&sig={random.randint(1,1000000)}" 
         return random_unsplash_url
     except Exception as e:
         logging.warning(f"Could not get random Unsplash image: {e}")
@@ -151,7 +151,6 @@ def scrape_full_article_text(article_url):
             logging.info(f"Skipping {article_url}: Not AI relevant after full content check for synthesis.")
             return None
         
-        # Add a check for publish date being within the target range (from newspaper3k's parsing)
         if article.publish_date:
             target_start_date = datetime(PAST_YEAR_RANGE[0], 1, 1)
             target_end_date = datetime(PAST_YEAR_RANGE[1] + 1, 1, 1) - timedelta(days=1)
@@ -361,7 +360,6 @@ def main():
         for m in genai.list_models():
             if "generateContent" in m.supported_generation_methods:
                 logging.info(f"  Available Model: {m.name} (supports generateContent)")
-                # Check if the desired model is found in the list
                 if m.name == GEMINI_MODEL:
                     found_target_model = True
             else:
@@ -370,7 +368,7 @@ def main():
         if not found_target_model:
             logging.error(f"Configured model '{GEMINI_MODEL}' was NOT found in the list of models supporting generateContent for your API Key. Please check API key permissions/restrictions or Google Cloud billing setup.")
             time.sleep(10)
-            return # Exit main if model not found
+            return 
         else:
             logging.info(f"Configured model '{GEMINI_MODEL}' IS found and supports generateContent. Proceeding.")
 
@@ -378,7 +376,7 @@ def main():
         logging.error(f"Failed to list Gemini models: {e}. This might indicate API key/billing issue.")
         logging.info("Exiting due to Gemini model listing failure.")
         time.sleep(10)
-        return # Exit main if model listing itself fails
+        return 
     # --- End Diagnostic ---
     
     month_names = ["January", "February", "March", "April", "May", "June", 
@@ -395,14 +393,16 @@ def main():
         ai_search_terms = " OR ".join(f'"{kw}"' for kw in AI_KEYWORDS) 
         publication_search_terms = " OR ".join(f'"{kw}"' for kw in PUBLICATION_KEYWORDS) 
 
-        # Domains identified as relevant for academic/journal content and early tech news
+        # --- REFINED TARGETED DOMAINS ---
+        # Excluded problematic general corporate/organizational sites.
+        # Focused on true academic/research/journal sources.
         targeted_domains = [
-            "aaai.org", "jair.org", 
-            "mit.edu", "stanford.edu", "cmu.edu", "berkeley.edu", 
-            "ieee.org", "spectrum.ieee.org", "acm.org", "dl.acm.org", 
-            "sciencedirect.com", "onlinelibrary.wiley.com", 
-            "wired.com", "sciencedaily.com", 
-            "ijcai.org", "nips.cc", "icml.cc" 
+            "aaai.org", "jair.org", "dl.acm.org", "acm.org", # Core AI Societies/Journals/Digital Libraries
+            "mit.edu", "stanford.edu", "cmu.edu", "berkeley.edu", # Leading Universities in AI research
+            "ieee.org", "spectrum.ieee.org", # IEEE - broader tech, but good for papers
+            "sciencedirect.com", "onlinelibrary.wiley.com", # Major Academic Publishers (might be paywalled)
+            "wired.com", "sciencedaily.com", # Early Tech News / Science News (late 90s only)
+            "ijcai.org", "nips.cc", "icml.cc" # Conference sites (for proceedings)
         ]
         site_operators = " OR ".join(f"site:{d}" for d in targeted_domains)
 
@@ -425,18 +425,24 @@ def main():
                 break 
 
             # Pre-filter: Skip URLs that look like non-article pages (e.g., footers, navs, directories)
+            # Expanded and clarified filter terms
             if any(term in result['link'].lower() for term in [
-                'forum', 'forums', 'discussion', 'comments', 'blog', 'index.html', '/tag/', '/category/', 
-                'masthead', 'contact', 'about', 'member', 'privacy', 'legal', 'jobs', 'careers', 
-                '.css', '.js', '.xml', 'robots.txt', 'login', 'signup', 'subscribe', 'cart', 'shop',
-                # Aggressive filtering for common modern corporate/blogging platforms
+                '.zip', '.exe', '.jpg', '.png', '.gif', '.mp3', '.mp4', '.avi', # Media files
+                'forum', 'forums', 'discussion', 'archive.org', 'support.google.com', 
+                'jobs.google.com', 'developers.google.com', 'policies.google.com', 
+                'privacy', 'legal', 'terms', 'about', 'contact', 'careers', 'sitemap.xml', 'robots.txt',
+                # --- Aggressive filters for modern corporate/blogging platforms ---
                 'github.com', 'aws.amazon.com', 'azure.microsoft.com', 'cloud.google.com', 
                 'openai.com', 'perplexity.ai', 'reddit.com', 'twitter.com', 'facebook.com', 'youtube.com', 
-                'newsroom', '/newsroom/', 'press', '/press/', 'cdn.', 'assets.', 'static.', 'media.',
-                # Added more terms to filter out marketing/docs/generic pages
-                'docs.', 'api.', 'dev.', 'help.', 'support.', 'faq', 'events', 'webinars', 'solutions', 'products', 'services'
-                ]) or (result['link'].count('/') <= 3 and any(d in result['link'].lower() for d in ['org', 'edu', 'com', 'net'])): 
-                logging.debug(f"  Skipping {result['link']}: Appears to be a non-article page type from URL pattern or too generic base domain.")
+                'newsroom', '/newsroom/', 'press', '/press/', # Common modern news/press structures
+                'blog', '/blog/', # Generic blog pages (often short content)
+                'cdn.', 'assets.', 'static.', 'media.', # Content delivery/static assets
+                'login', 'signup', 'subscribe', 'cart', 'shop', # E-commerce/account pages
+                'docs.', 'api.', 'dev.', 'help.', 'solutions', 'products', 'services', # Documentation/Marketing
+                'faq', 'events', 'webinars', 'tutorials', 'guides', 'overview', 'definition', 'what-is', # Explainer/Marketing
+                'wikipedia.org', 'wikidata.org', 'wikibooks.org' # Wikipedia/Wiki sites (good for info, not primary source for *synthesis*)
+                ]) or (result['link'].count('/') <= 3 and any(d in result['link'].lower() for d in ['org', 'edu', 'com', 'net'])): # Heuristic for too-short URL paths
+                logging.debug(f"  Skipping {result['link']}: Appears to be a non-article page type or too generic base domain.")
                 continue
 
             potential_ai = False
