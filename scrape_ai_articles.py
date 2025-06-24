@@ -1,4 +1,4 @@
-# scrape_ai_articles.py (Fourth Revision: Targeted Domains)
+# scrape_ai_articles.py (Fifth Revision: Realistic Date Range)
 import requests
 from bs4 import BeautifulSoup 
 import newspaper
@@ -13,13 +13,17 @@ import logging
 
 # --- Configuration ---
 TARGET_DOMAINS = [
-    # Top candidates based on your search results, starting earlier or being very relevant
-    "kurzweilai.net",       # Excellent candidate, captures from 2001
-    "ai-depot.com",         # Excellent candidate, captures from 2001
-    "generation5.org",      # Good candidate, captures from 2000
+    # Prioritized based on your search results and earlier capture dates
+    "kurzweilai.net",       # Captures from 2001
+    "ai-depot.com",         # Captures from 2001
+    "generation5.org",      # Captures from 2000
     "sciencedaily.com",     # Captures from 1996, broad science news, likely some AI
     "alife.org",            # International Society of Artificial Life, captures from 1998, highly relevant
     "inform.com",           # Captures from 1998, broader news platform, might have AI
+    "wired.com",            # Captures from 1993, good for late 90s onwards
+    "cnet.com",             # Captures from 1994, good for late 90s onwards
+    "arstechnica.com",      # Captures from 1998, good for late 90s onwards
+    "spectrum.ieee.org",    # Good for more academic/deep tech, older captures
 
     # Other relevant candidates from your list (some might start later or be niche)
     "phys.org",             # Science news, captures from 2002
@@ -33,26 +37,20 @@ TARGET_DOMAINS = [
     "oreillynet.com",       # O'Reilly technical content, captures from 2000
     "advogato.org",         # Open source tech community, captures from 1999
     "webindia123.com",      # General news portal, captures from 2000 (lower relevance chance)
-    "nursingtimes.net",     # Unlikely, but AI in health tech could exist
-    "psychology.about.com", # Psychology of AI? Unlikely direct news, but possible
-    
-    # Original domains that might still contribute to later years
-    "wired.com",            # Captures from 1993, good for late 90s onwards
-    "cnet.com",             # Captures from 1994, good for late 90s onwards
-    "arstechnica.com",      # Captures from 1998, good for late 90s onwards
-    "spectrum.ieee.org",    # Good for more academic/deep tech, older captures
+    # Excluded: nursingtimes.net, psychology.about.com, etc., as too tangential
 ]
 
-AI_KEYWORDS = ["artificial intelligence", "ai", "machine learning", "deep learning", "neural network", "robotics", "nlp", "computer vision", "AGI", "Cyber", "Cyberpunk", "Virtual reality"] # Added AGI
+AI_KEYWORDS = ["artificial intelligence", "ai", "machine learning", "deep learning", "neural network", "robotics", "nlp", "computer vision", "AGI"]
 DATA_FILE = "ai_articles.json"
 IMAGES_DIR = "images/ai_time_capsule"
 
 # --- IMPORTANT CHANGES FOR DATE RANGE AND TIMEOUTS ---
-MAX_ARTICLES_PER_RUN = 1  # Aim for just 1 article per successful run, to maximize completion
-MAX_DAILY_ATTEMPTS = 150  # Increased attempts, as the new domains are more likely to have hits
-REQUEST_TIMEOUT = 30      # Keep increased timeout for network requests
-# Adjusted: Start with a range that many of your found domains are active in
-PAST_YEAR_RANGE = (1980, 2000) 
+MAX_ARTICLES_PER_RUN = 1  
+MAX_DAILY_ATTEMPTS = 150  
+REQUEST_TIMEOUT = 30      
+# Adjusted to a more realistic range for the TARGET_DOMAINS provided.
+# This will significantly increase the chance of finding content.
+PAST_YEAR_RANGE = (1998, 2016) 
 WAYBACK_CDX_API = "http://web.archive.org/cdx/search/cdx"
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -64,8 +62,7 @@ def get_random_past_date(start_year, end_year):
     end_date = datetime(end_year + 1, 1, 1) - timedelta(days=1)
     
     time_between_dates = end_date - start_date
-    # CORRECTED LINE HERE:
-    days_between_dates = time_between_dates.days 
+    days_between_dates = time_between_dates.days # Corrected line from previous error
     
     if days_between_dates <= 0:
         logging.warning(f"Invalid date range for random date generation: {start_year}-{end_year}")
@@ -76,7 +73,7 @@ def get_random_past_date(start_year, end_year):
 
 def fetch_wayback_snapshots(domain, date_str, limit=50):
     params = {
-        "url": f"{domain}/*", # Query for all URLs under the domain
+        "url": f"{domain}/*", 
         "from": date_str,
         "to": date_str,
         "limit": limit,
