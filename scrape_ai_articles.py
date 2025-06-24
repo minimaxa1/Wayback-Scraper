@@ -1,4 +1,4 @@
-# scrape_ai_articles.py (Further Updated Version)
+# scrape_ai_articles.py (Third Revision for Older Content)
 import requests
 from bs4 import BeautifulSoup 
 import newspaper
@@ -13,68 +13,67 @@ import logging
 
 # --- Configuration ---
 TARGET_DOMAINS = [
-    # Note: Many of these domains (TechCrunch, Engadget, CNET, Ars Technica)
-    # did not exist or were not prominent in the 1985-2000 range.
-    # IEEE Spectrum might be your best bet for older, more academic AI content.
-    # Success rate will be lower for earlier years.
-    "techcrunch.com",
-    "engadget.com",
-    "wired.com",
-    "arstechnica.com",
-    "cnet.com",
-    "spectrum.ieee.org",
-    # Consider adding older, more general news archives or academic sources if needed,
-    # but parsing older, less structured sites is harder for newspaper3k.
+    # Primary tech news (less likely to have deep content before ~1995-2000)
+    "techcrunch.com", # Started 2005
+    "engadget.com",   # Started 2004
+    "cnet.com",       # Started 1994 (might have some from late 90s)
+    "arstechnica.com",# Started 1998 (might have some from late 90s)
+    "wired.com",      # Started 1993 (better chance for 90s content)
+    
+    # More academic/institutional, better chance for older content
+    "spectrum.ieee.org", # Good bet for older tech/engineering discussions
+    "ieee.org",          # Broader IEEE site
+    "mit.edu",           # MIT - strong presence in early web, research papers
+    "stanford.edu",      # Stanford - similar to MIT
+    # Add more if you find them: e.g., early tech companies' archives, research labs
 ]
 AI_KEYWORDS = ["artificial intelligence", "ai", "machine learning", "deep learning", "neural network", "robotics", "nlp", "computer vision"]
 DATA_FILE = "ai_articles.json"
 IMAGES_DIR = "images/ai_time_capsule"
 
 # --- IMPORTANT CHANGES FOR DATE RANGE AND TIMEOUTS ---
-MAX_ARTICLES_PER_RUN = 2  # Still keeping this low for faster completion per run
-MAX_DAILY_ATTEMPTS = 50   # Max attempts to find articles across random dates
-REQUEST_TIMEOUT = 30      # Increased timeout for network requests in seconds (was 15)
+MAX_ARTICLES_PER_RUN = 1  # Aim for just 1 article per successful run, to maximize completion
+MAX_DAILY_ATTEMPTS = 100  # More attempts to find content across random dates
+REQUEST_TIMEOUT = 30      # Keep increased timeout for network requests
 PAST_YEAR_RANGE = (1985, 2000) # User requested range: 1985-2000
 WAYBACK_CDX_API = "http://web.archive.org/cdx/search/cdx"
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Ensure directories exist
 os.makedirs(IMAGES_DIR, exist_ok=True)
 
 def get_random_past_date(start_year, end_year):
-    """Generates a random date within the specified year range."""
     start_date = datetime(start_year, 1, 1)
-    # End date is start of next year to include full end_year
-    end_date = datetime(end_year + 1, 1, 1) - timedelta(days=1) 
+    end_date = datetime(end_year + 1, 1, 1) - timedelta(days=1)
     
     time_between_dates = end_date - start_date
     days_between_dates = time_between_dates.days
     if days_between_dates <= 0:
         logging.warning(f"Invalid date range for random date generation: {start_year}-{end_year}")
-        return start_date # Fallback to start date if range is non-positive
+        return start_date
     random_number_of_days = random.randrange(days_between_dates)
     random_date = start_date + timedelta(days=random_number_of_days)
     return random_date
 
-def fetch_wayback_snapshots(domain, date_str, limit=100):
+def fetch_wayback_snapshots(domain, date_str, limit=50): # Limit to 50 snapshots from CDX API
     """Fetches potential Wayback Machine snapshots for a domain on a specific date."""
     params = {
         "url": f"{domain}/*",
         "from": date_str,
         "to": date_str,
-        "limit": limit,
+        "limit": limit, # Keep this lower for older, potentially non-existent data
         "output": "json",
         "collapse": "urlkey", 
         "filter": ["statuscode:200", "!mimetype:image/jpeg", "!mimetype:image/png"],
     }
     
     try:
+        logging.info(f"  Querying CDX for {domain} on {date_str}...")
         response = requests.get(WAYBACK_CDX_API, params=params, timeout=REQUEST_TIMEOUT)
         response.raise_for_status() 
         data = response.json()
         
-        if data and data[0] and data[0][0] == 'urlkey':
+        if data and data[0] and data[0][0] == 'urlkey': # Skip header row
             data = data[1:]
         
         snapshots = []
@@ -86,15 +85,18 @@ def fetch_wayback_snapshots(domain, date_str, limit=100):
                 "original_url": original_url,
                 "wayback_url": wayback_url,
                 "timestamp": timestamp,
-                "title_guess": original_url.split('/')[-2].replace('-', ' ').title() if original_url.split('/')[-2] else ""
+                "title_guess": original_url.split('/')[-2].replace('-', ' ').title() if len(original_url.split('/')) > 2 and original_url.split('/')[-2] else ""
             })
         return snapshots
     except requests.exceptions.RequestException as e:
         logging.error(f"Error fetching CDX snapshots for {domain} on {date_str}: {e}")
         return []
+    except json.JSONDecodeError as e:
+        logging.error(f"JSON decode error for CDX response from {domain} on {date_str}: {e}. Response: {response.text[:200]}...")
+        return []
+
 
 def process_image(image_url, article_id):
-    """Downloads, resizes, compresses, and saves an image."""
     try:
         img_data = requests.get(image_url, timeout=REQUEST_TIMEOUT).content
         img = Image.open(io.BytesIO(img_data))
@@ -113,7 +115,6 @@ def process_image(image_url, article_id):
         return None
 
 def is_ai_relevant(title, text):
-    """Checks if the article title or text contains AI-related keywords."""
     title_lower = title.lower()
     text_lower = text.lower()
     for keyword in AI_KEYWORDS:
@@ -122,11 +123,10 @@ def is_ai_relevant(title, text):
     return False
 
 def scrape_article(wayback_url, original_url, article_id):
-    """Scrapes a single article using newspaper3k and processes it."""
     try:
         config = newspaper.Config()
         config.browser_user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        config.request_timeout = REQUEST_TIMEOUT # Pass timeout to newspaper3k
+        config.request_timeout = REQUEST_TIMEOUT
 
         article = newspaper.Article(wayback_url, config=config)
         article.download()
@@ -167,7 +167,6 @@ def scrape_article(wayback_url, original_url, article_id):
         return None
 
 def load_existing_articles():
-    """Loads existing articles from the JSON file."""
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, 'r', encoding='utf-8') as f:
             try:
@@ -178,7 +177,6 @@ def load_existing_articles():
     return []
 
 def save_articles(articles):
-    """Saves the updated list of articles to the JSON file."""
     with open(DATA_FILE, 'w', encoding='utf-8') as f:
         json.dump(articles, f, indent=2, ensure_ascii=False)
 
@@ -197,6 +195,7 @@ def main():
         target_date_str = target_date.strftime("%Y%m%d")
         logging.info(f"Attempt {attempts}/{MAX_DAILY_ATTEMPTS}: Searching for articles from: {target_date.strftime('%Y-%m-%d')}")
         
+        # Randomize domains each attempt to distribute load and try different sources
         random.shuffle(TARGET_DOMAINS)
         
         for domain in TARGET_DOMAINS:
@@ -204,14 +203,13 @@ def main():
                 break
             
             logging.info(f"  Fetching snapshots from {domain}...")
-            # Reduced limit for CDX API requests when looking at very old/sparse data
-            snapshots = fetch_wayback_snapshots(domain, target_date_str, limit=50) 
+            snapshots = fetch_wayback_snapshots(domain, target_date_str, limit=50) # Keep limit reasonable
             if not snapshots:
                 logging.info(f"  No snapshots found for {domain} on {target_date_str}.")
                 time.sleep(1) # Small pause even if no snapshots found for this domain
                 continue
 
-            random.shuffle(snapshots)
+            random.shuffle(snapshots) # Shuffle snapshots found for variety
             
             for i, snap in enumerate(snapshots):
                 if articles_added_this_run >= MAX_ARTICLES_PER_RUN:
@@ -222,15 +220,18 @@ def main():
                 
                 # Pre-filter by URL/Title guess for basic AI keywords
                 potential_ai = False
-                for keyword in AI_KEYWORDS:
-                    if keyword in snap['original_url'].lower() or keyword in snap['title_guess'].lower():
-                        potential_ai = True
-                        break
+                # Prioritize URLs that might explicitly mention AI in path
+                if any(keyword in snap['original_url'].lower() for keyword in AI_KEYWORDS):
+                    potential_ai = True
+                # Fallback to title guess if URL path doesn't indicate AI
+                elif any(keyword in snap['title_guess'].lower() for keyword in AI_KEYWORDS):
+                     potential_ai = True
+
                 if not potential_ai:
                     logging.debug(f"  Skipping {snap['original_url']}: No immediate AI keywords in URL/guessed title.")
                     continue
 
-                logging.info(f"  Attempting to scrape {i+1}/{len(snapshots)} from {domain}: {snap['original_url']}")
+                logging.info(f"  Attempting to scrape {i+1}/{len(snapshots)} potential AI articles from {domain}: {snap['original_url']}")
                 article_id = f"{len(existing_articles) + articles_added_this_run}_{random.randint(1000,9999)}"
                 article_data = scrape_article(snap['wayback_url'], snap['original_url'], article_id)
                 
@@ -242,9 +243,9 @@ def main():
                     if articles_added_this_run >= MAX_ARTICLES_PER_RUN:
                         break
                 
-                time.sleep(2) # Increased pause between article fetches (was 1.5)
+                time.sleep(2) # Increased pause between article fetches
 
-        time.sleep(5) # Increased pause between different random date attempts / domains (was 3)
+        time.sleep(5) # Increased pause between different random date attempts / domains
         
     save_articles(existing_articles)
     logging.info(f"Finished run. Added {articles_added_this_run} new articles. Total articles in file: {len(existing_articles)}")
