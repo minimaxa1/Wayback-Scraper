@@ -1,6 +1,6 @@
-# scrape_ai_articles.py (Updated Version)
+# scrape_ai_articles.py (Further Updated Version)
 import requests
-from bs4 import BeautifulSoup # Keep for potential future use, though newspaper3k handles most
+from bs4 import BeautifulSoup 
 import newspaper
 import os
 import json
@@ -13,21 +13,28 @@ import logging
 
 # --- Configuration ---
 TARGET_DOMAINS = [
+    # Note: Many of these domains (TechCrunch, Engadget, CNET, Ars Technica)
+    # did not exist or were not prominent in the 1985-2000 range.
+    # IEEE Spectrum might be your best bet for older, more academic AI content.
+    # Success rate will be lower for earlier years.
     "techcrunch.com",
     "engadget.com",
     "wired.com",
     "arstechnica.com",
     "cnet.com",
-    "spectrum.ieee.org"
+    "spectrum.ieee.org",
+    # Consider adding older, more general news archives or academic sources if needed,
+    # but parsing older, less structured sites is harder for newspaper3k.
 ]
 AI_KEYWORDS = ["artificial intelligence", "ai", "machine learning", "deep learning", "neural network", "robotics", "nlp", "computer vision"]
 DATA_FILE = "ai_articles.json"
 IMAGES_DIR = "images/ai_time_capsule"
-# --- IMPORTANT CHANGES FOR TIMEOUTS ---
-MAX_ARTICLES_PER_RUN = 2  # Reduced to add fewer articles per run, making it faster to complete
-MAX_DAILY_ATTEMPTS = 50   # Reduced max attempts to find articles for a given day.
-REQUEST_TIMEOUT = 15      # Timeout for network requests in seconds
-PAST_YEAR_RANGE = (2005, 2015) # Focused date range for initial testing, adjust later
+
+# --- IMPORTANT CHANGES FOR DATE RANGE AND TIMEOUTS ---
+MAX_ARTICLES_PER_RUN = 2  # Still keeping this low for faster completion per run
+MAX_DAILY_ATTEMPTS = 50   # Max attempts to find articles across random dates
+REQUEST_TIMEOUT = 30      # Increased timeout for network requests in seconds (was 15)
+PAST_YEAR_RANGE = (1985, 2000) # User requested range: 1985-2000
 WAYBACK_CDX_API = "http://web.archive.org/cdx/search/cdx"
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -38,17 +45,19 @@ os.makedirs(IMAGES_DIR, exist_ok=True)
 def get_random_past_date(start_year, end_year):
     """Generates a random date within the specified year range."""
     start_date = datetime(start_year, 1, 1)
-    end_date = datetime(end_year + 1, 1, 1) - timedelta(days=1)
+    # End date is start of next year to include full end_year
+    end_date = datetime(end_year + 1, 1, 1) - timedelta(days=1) 
     
     time_between_dates = end_date - start_date
     days_between_dates = time_between_dates.days
-    if days_between_dates <= 0: # Handle cases where range is too small or invalid
-        return start_date # Fallback to start date
+    if days_between_dates <= 0:
+        logging.warning(f"Invalid date range for random date generation: {start_year}-{end_year}")
+        return start_date # Fallback to start date if range is non-positive
     random_number_of_days = random.randrange(days_between_dates)
     random_date = start_date + timedelta(days=random_number_of_days)
     return random_date
 
-def fetch_wayback_snapshots(domain, date_str, limit=100): # Reduced limit from 500 to 100
+def fetch_wayback_snapshots(domain, date_str, limit=100):
     """Fetches potential Wayback Machine snapshots for a domain on a specific date."""
     params = {
         "url": f"{domain}/*",
@@ -56,16 +65,15 @@ def fetch_wayback_snapshots(domain, date_str, limit=100): # Reduced limit from 5
         "to": date_str,
         "limit": limit,
         "output": "json",
-        "collapse": "urlkey", # Get unique URLs
-        "filter": ["statuscode:200", "!mimetype:image/jpeg", "!mimetype:image/png"], # Only successful HTML pages
+        "collapse": "urlkey", 
+        "filter": ["statuscode:200", "!mimetype:image/jpeg", "!mimetype:image/png"],
     }
     
     try:
         response = requests.get(WAYBACK_CDX_API, params=params, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status() # Raise an exception for HTTP errors
+        response.raise_for_status() 
         data = response.json()
         
-        # CDX API returns header as first element, skip it
         if data and data[0] and data[0][0] == 'urlkey':
             data = data[1:]
         
@@ -78,7 +86,7 @@ def fetch_wayback_snapshots(domain, date_str, limit=100): # Reduced limit from 5
                 "original_url": original_url,
                 "wayback_url": wayback_url,
                 "timestamp": timestamp,
-                "title_guess": original_url.split('/')[-2].replace('-', ' ').title() if original_url.split('/')[-2] else "" # Basic title guess from URL
+                "title_guess": original_url.split('/')[-2].replace('-', ' ').title() if original_url.split('/')[-2] else ""
             })
         return snapshots
     except requests.exceptions.RequestException as e:
@@ -88,7 +96,7 @@ def fetch_wayback_snapshots(domain, date_str, limit=100): # Reduced limit from 5
 def process_image(image_url, article_id):
     """Downloads, resizes, compresses, and saves an image."""
     try:
-        img_data = requests.get(image_url, timeout=REQUEST_TIMEOUT).content # Added timeout
+        img_data = requests.get(image_url, timeout=REQUEST_TIMEOUT).content
         img = Image.open(io.BytesIO(img_data))
         
         if img.mode == 'P' or img.mode == 'LA' or img.mode == 'RGBA':
@@ -116,7 +124,6 @@ def is_ai_relevant(title, text):
 def scrape_article(wayback_url, original_url, article_id):
     """Scrapes a single article using newspaper3k and processes it."""
     try:
-        # Configure newspaper to use the request timeout
         config = newspaper.Config()
         config.browser_user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         config.request_timeout = REQUEST_TIMEOUT # Pass timeout to newspaper3k
@@ -197,9 +204,11 @@ def main():
                 break
             
             logging.info(f"  Fetching snapshots from {domain}...")
-            snapshots = fetch_wayback_snapshots(domain, target_date_str, limit=50) # Use a lower limit for CDX API requests
+            # Reduced limit for CDX API requests when looking at very old/sparse data
+            snapshots = fetch_wayback_snapshots(domain, target_date_str, limit=50) 
             if not snapshots:
                 logging.info(f"  No snapshots found for {domain} on {target_date_str}.")
+                time.sleep(1) # Small pause even if no snapshots found for this domain
                 continue
 
             random.shuffle(snapshots)
@@ -231,11 +240,11 @@ def main():
                     articles_added_this_run += 1
                     logging.info(f"  SUCCESS: Added '{article_data['title']}' ({article_data['source']} from {target_date.strftime('%Y-%m-%d')})")
                     if articles_added_this_run >= MAX_ARTICLES_PER_RUN:
-                        break # Exit inner loop if max reached
+                        break
                 
-                time.sleep(1.5) # Be more polite to Wayback Machine between article fetches
+                time.sleep(2) # Increased pause between article fetches (was 1.5)
 
-        time.sleep(3) # Longer pause between different random date attempts / domains
+        time.sleep(5) # Increased pause between different random date attempts / domains (was 3)
         
     save_articles(existing_articles)
     logging.info(f"Finished run. Added {articles_added_this_run} new articles. Total articles in file: {len(existing_articles)}")
