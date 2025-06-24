@@ -18,9 +18,14 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
-        # IMPORTANT: Fetch all history to allow rebase/merge if needed
         with:
-          fetch-depth: 0 
+          fetch-depth: 0 # Ensures full history is fetched for rebase/merge
+
+      - name: Pull latest changes (before generating new content) # FIX: Moved this step up
+        run: |
+          git config user.name "GitHub Actions Bot" # Configure bot user
+          git config user.email "actions@github.com"
+          git pull --rebase origin main # Pull and rebase local changes on top of remote
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -36,24 +41,18 @@ jobs:
           mkdir -p generated_articles
           mkdir -p images/ai_time_capsule
 
-      - name: Run AI analysis generation script
+      - name: Run AI analysis generation script # This script will now operate on an up-to-date repo
         run: python generate_ai_analysis.py
         env:
           PYTHONUNBUFFERED: 1
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }} 
           GOOGLE_CSE_ID: ${{ secrets.GOOGLE_CSE_ID }} 
 
-      - name: Commit and push changes # FIX: Added git pull --rebase before git push
+      - name: Commit and push generated changes # Now, only add/commit the new changes and push
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config user.name "GitHub Actions Bot"
-          git config user.email "actions@github.com"
-          
-          # Pull latest changes from remote and rebase local changes on top
-          # This resolves "remote contains work that you do not have locally" errors
-          git pull --rebase origin main
-          
+          # No need for git config here again, already done in 'Pull latest changes' step
           git add generated_articles/ 
           git add ai_analyses_index.json 
           git commit -m "Automated: Added new AI analysis article via Google Gemini." || echo "No changes to commit" 
