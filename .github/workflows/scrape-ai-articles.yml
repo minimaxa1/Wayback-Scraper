@@ -1,80 +1,52 @@
-// ai-time-capsule.js (Updated for Generated Articles)
-document.addEventListener('DOMContentLoaded', () => {
-    const articlesGrid = document.getElementById('ai-articles-grid');
-    const indexDataUrl = 'ai_analyses_index.json'; // New index file name
+# .github/workflows/scrape-ai-articles.yml
+# This workflow automates the scraping of AI-related articles using Google Custom Search JSON API
+# and synthesizes new content using Google Gemini, then commits them to your GitHub repository.
 
-    async function loadArticles() {
-        try {
-            const response = await fetch(indexDataUrl);
-            if (!response.ok) {
-                // If the file doesn't exist yet, it's okay for the first run
-                if (response.status === 404) {
-                    articlesGrid.innerHTML = '<p>No AI analysis articles generated yet. Please trigger the workflow!</p>';
-                    return;
-                }
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            const articles = await response.json();
-            
-            // Sort articles by generated_date (newest first)
-            articles.sort((a, b) => new Date(b.generated_date) - new Date(a.generated_date));
+name: Google Gemini AI Time Capsule Builder
 
-            articlesGrid.innerHTML = ''; // Clear loading indicator
+on:
+  workflow_dispatch: 
+  # schedule:
+  #   - cron: '0 12 * * *' # Example: Runs every day at 12:00 PM UTC
 
-            if (articles.length === 0) {
-                articlesGrid.innerHTML = '<p>No AI analysis articles found yet. Please trigger the workflow!</p>';
-                return;
-            }
+jobs:
+  build-ai-time-capsule:
+    runs-on: ubuntu-latest
+    permissions: # This line should have exactly 2 spaces of indentation from 'build-ai-time-capsule:'
+      contents: write # This line should have exactly 4 spaces of indentation from the left margin
 
-            articles.forEach(article => {
-                const articleCard = document.createElement('div');
-                articleCard.className = 'ai-article-card';
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-                if (article.featured_image) { // Use featured_image for the header image
-                    const img = document.createElement('img');
-                    img.src = article.featured_image;
-                    img.alt = article.title;
-                    img.onerror = function() {
-                        this.style.display = 'none'; // Hide broken images
-                    };
-                    articleCard.appendChild(img);
-                }
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
 
-                const contentDiv = document.createElement('div');
-                contentDiv.className = 'ai-article-card-content';
+      - name: Install dependencies
+        run: |
+          pip install requests newspaper3k Pillow lxml[html_clean] google-generativeai 
 
-                const title = document.createElement('h3');
-                const titleLink = document.createElement('a');
-                titleLink.href = article.html_path; // Link to the newly generated HTML file
-                titleLink.target = "_blank"; 
-                titleLink.rel = "noopener noreferrer"; 
-                titleLink.textContent = article.title;
-                title.appendChild(titleLink);
-                contentDiv.appendChild(title);
+      - name: Create directories if they don't exist
+        run: |
+          mkdir -p generated_articles
+          mkdir -p images/ai_time_capsule
 
-                const summary = document.createElement('p');
-                summary.textContent = article.summary;
-                contentDiv.appendChild(summary);
+      - name: Run AI analysis generation script
+        run: python generate_ai_analysis.py
+        env:
+          PYTHONUNBUFFERED: 1
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }} 
+          GOOGLE_CSE_ID: ${{ secrets.GOOGLE_CSE_ID }} 
 
-                articleCard.appendChild(contentDiv);
-
-                const metaDiv = document.createElement('div');
-                metaDiv.className = 'ai-article-meta';
-                metaDiv.innerHTML = `
-                    <span>Generated: ${new Date(article.generated_date).toLocaleDateString()}</span>
-                    <span>Sources: ${article.original_sources_count}</span>
-                `;
-                articleCard.appendChild(metaDiv);
-
-
-                articlesGrid.appendChild(articleCard);
-            });
-
-        } catch (error) {
-            console.error("Could not load AI analysis articles data:", error);
-            articlesGrid.innerHTML = '<p>Error loading AI analysis articles. Please try again later.</p>';
-        }
-    }
-
-    loadArticles();
-});
+      - name: Commit and push changes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          git add generated_articles/ 
+          git add ai_analyses_index.json 
+          git commit -m "Automated: Added new AI analysis article via Google Gemini." || echo "No changes to commit" 
+          git push
