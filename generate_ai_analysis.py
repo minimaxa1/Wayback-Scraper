@@ -1,4 +1,4 @@
-# generate_ai_analysis.py (Ninth Revision: Model Fix + Historical Content Focus)
+# generate_ai_analysis.py (Tenth Revision: Gemini Model Fix + Speed Optimization)
 
 import requests
 import newspaper
@@ -19,8 +19,11 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID")    
 GOOGLE_CSE_API_URL = "https://www.googleapis.com/customsearch/v1"
 
-# --- FIX: Changed GEMINI_MODEL to 'gemini-pro' ---
-GEMINI_MODEL = "gemini-pro" # Previously "gemini-flash" which caused 404. "gemini-pro" is stable.
+# --- FIX: Changed GEMINI_MODEL for better compatibility/availability ---
+# "gemini-1.0-pro" is a commonly stable and available model.
+# If this still fails, you MUST check your Google Cloud project's available models
+# using the 'genai.list_models()' diagnostic in main().
+GEMINI_MODEL = "gemini-1.0-pro" 
 
 GENERATED_ARTICLES_DIR = "generated_articles"
 IMAGES_DIR = "images/ai_time_capsule" 
@@ -31,12 +34,14 @@ AI_KEYWORDS = ["artificial intelligence", "ai", "machine learning", "deep learni
                "connectionism", "symbolic AI", "cognitive science", "knowledge representation",
                "fuzzy logic", "genetic algorithms", "AI system", "cybernetics", "automaton",
                "pattern recognition", "human-computer interaction", "AI winter", "inference engine",
-               "data mining", "predictive analytics", "cyberpunk"] # Added "cyberpunk" as per logs
+               "data mining", "predictive analytics", "cyberpunk", "AI expert", "robot", "intelligent agent",
+               "knowledge-based system", "computational linguistics"] # Expanded more for older content
 
-PUBLICATION_KEYWORDS = ["paper", "proceedings", "journal", "report", "technical report", "conference", "symposium", "magazine", "article"] 
+PUBLICATION_KEYWORDS = ["paper", "proceedings", "journal", "report", "technical report", "conference", "symposium", "magazine", "article", "thesis", "dissertation"] # Added more terms
 
-MAX_SCRAPED_ARTICLES_FOR_SYNTHESIS = 3 
-MAX_SEARCH_ATTEMPTS_PER_RUN = 200 
+# --- OPTIMIZATION FOR SPEED ---
+MAX_SCRAPED_ARTICLES_FOR_SYNTHESIS = 1 # Changed to 1: Synthesize based on 1 strong article for faster runs
+MAX_SEARCH_ATTEMPTS_PER_RUN = 100 # Adjusted attempts: still high enough for old content, but quicker overall loop
 REQUEST_TIMEOUT = 25      
 
 PAST_YEAR_RANGE = (1985, 2000) 
@@ -61,7 +66,7 @@ def get_random_past_month(start_year, end_year):
     return datetime(year, month, 1)
 
 def fetch_google_cse_results(query, num_results=10):
-    if not GOOGLE_API_KEY or not GOOGLE_CSE_ID: # Corrected variable name here as well
+    if not GOOGLE_API_KEY or not GOOGLE_CSE_ID: 
         logging.error("GOOGLE_API_KEY or GOOGLE_CSE_ID environment variables not set.")
         return []
 
@@ -89,9 +94,12 @@ def fetch_google_cse_results(query, num_results=10):
                         'forum', 'forums', 'discussion', 'archive.org', 'support.google.com', 
                         'jobs.google.com', 'developers.google.com', 'policies.google.com', 
                         'privacy', 'legal', 'terms', 'about', 'contact', 'careers', 'sitemap.xml', 'robots.txt',
-                        'github.com', 'aws.amazon.com', 'azure.microsoft.com', 'cloud.google.com', # Specific modern tech company sites seen in logs
-                        'openai.com', 'perplexity.ai', 'reddit.com', 'twitter.com', 'facebook.com', 'youtube.com', # Other modern/social sites
-                        'blog', '/blog/', 'newsroom', '/newsroom/', 'press', '/press/' # Often marketing/press release not deep article
+                        # --- Aggressive filters for modern/irrelevant domains based on previous logs ---
+                        'github.com', 'aws.amazon.com', 'azure.microsoft.com', 'cloud.google.com', 
+                        'openai.com', 'perplexity.ai', 'reddit.com', 'twitter.com', 'facebook.com', 'youtube.com', 
+                        # --- More general filters for non-article pages ---
+                        'blog', '/blog/', 'newsroom', '/newsroom/', 'press', '/press/',
+                        'login', 'signup', 'subscribe', 'cart', 'shop', 'cdn.', 'assets.', 'static.', 'media.'
                         ]):
                         results.append({
                             "title": item['title'],
@@ -109,7 +117,7 @@ def fetch_google_cse_results(query, num_results=10):
 
 def get_header_image_url(article_id):
     try:
-        random_unsplash_url = f"https://source.unsplash.com/random/1080x720?technology,abstract,futuristic,circuit,neural,network,data,ai,robotics,vintage,retro&sig={random.randint(1,1000000)}" # Added vintage/retro
+        random_unsplash_url = f"https://source.unsplash.com/random/1080x720?technology,abstract,futuristic,circuit,neural,network,data,ai,robotics,vintage,retro,history&sig={random.randint(1,1000000)}" # Added more relevant keywords
         return random_unsplash_url
     except Exception as e:
         logging.warning(f"Could not get random Unsplash image: {e}")
@@ -147,11 +155,20 @@ def scrape_full_article_text(article_url):
         
         # Add a check for publish date being too recent (from newspaper3k's parsing)
         if article.publish_date:
-            target_end_date = datetime(PAST_YEAR_RANGE[1] + 1, 1, 1) - timedelta(days=1)
+            target_end_date = datetime(PAST_YEAR_RANGE[1] + 1, 1, 1) - timedelta(days=1) # End of the PAST_YEAR_RANGE
             if article.publish_date.year > target_end_date.year or \
-               (article.publish_date.year == target_end_date.year and article.publish_date.month > target_end_date.month):
+               (article.publish_date.year == target_end_date.year and article.publish_date.month > target_end_date.month) or \
+               (article.publish_date.year == target_end_date.year and article.publish_date.month == target_end_date.month and article.publish_date.day > target_end_date.day):
                 logging.info(f"Skipping {article_url}: Publish date {article.publish_date.strftime('%Y-%m-%d')} is too recent for target range {PAST_YEAR_RANGE}.")
                 return None
+            
+            # Optionally, also check if it's too old (if publish_date is before start of range)
+            target_start_date = datetime(PAST_YEAR_RANGE[0], 1, 1)
+            if article.publish_date.year < target_start_date.year or \
+               (article.publish_date.year == target_start_date.year and article.publish_date.month < target_start_date.month):
+                logging.info(f"Skipping {article_url}: Publish date {article.publish_date.strftime('%Y-%m-%d')} is too old for target range {PAST_YEAR_RANGE}.")
+                return None
+
 
         return {
             "title": article.title,
@@ -346,6 +363,18 @@ def main():
     attempts = 0
     
     logging.info("Starting Google CSE + Google Gemini AI Time Capsule Generation run (AI News Detective Mode)...")
+
+    # --- Diagnostic: List available Gemini models ---
+    try:
+        logging.info("Attempting to list available Gemini models for debugging:")
+        for m in genai.list_models():
+            if "generateContent" in m.supported_generation_methods:
+                logging.info(f"  Available Model: {m.name} (supports generateContent)")
+            else:
+                logging.debug(f"  Available Model: {m.name} (does NOT support generateContent)")
+    except Exception as e:
+        logging.error(f"Failed to list Gemini models: {e}. This might indicate API key/billing issue.")
+    # --- End Diagnostic ---
     
     month_names = ["January", "February", "March", "April", "May", "June", 
                    "July", "August", "September", "October", "November", "December"]
@@ -359,22 +388,19 @@ def main():
         logging.info(f"Attempt {attempts}/{MAX_SEARCH_ATTEMPTS_PER_RUN}: Searching for raw articles from: {primary_scrape_date_str}")
         
         # --- Aggressively Targeted Search Query for 1985-2000 Academic/Journal Content ---
-        # Combines AI terms, publication type terms, and targeted domains.
         ai_search_terms = " OR ".join(f'"{kw}"' for kw in AI_KEYWORDS) 
         publication_search_terms = " OR ".join(f'"{kw}"' for kw in PUBLICATION_KEYWORDS) 
 
-        # Domains identified as relevant for academic/journal content and early tech news
         targeted_domains = [
-            "aaai.org", "jair.org", # Key AI Societies/Journals
-            "mit.edu", "stanford.edu", "cmu.edu", "berkeley.edu", # Leading Universities in AI research
-            "ieee.org", "spectrum.ieee.org", "acm.org", "dl.acm.org", # Professional Societies / Digital Libraries
-            "sciencedirect.com", "onlinelibrary.wiley.com", # Major Academic Publishers (can be paywalled)
-            "wired.com", "sciencedaily.com", # Early Tech News / Science News
-            "ijcai.org", "nips.cc", "icml.cc" # Conference sites (for proceedings)
+            "aaai.org", "jair.org", 
+            "mit.edu", "stanford.edu", "cmu.edu", "berkeley.edu", 
+            "ieee.org", "spectrum.ieee.org", "acm.org", "dl.acm.org", 
+            "sciencedirect.com", "onlinelibrary.wiley.com", 
+            "wired.com", "sciencedaily.com", 
+            "ijcai.org", "nips.cc", "icml.cc" 
         ]
         site_operators = " OR ".join(f"site:{d}" for d in targeted_domains)
 
-        # Final Google CSE query string
         search_query = f'({ai_search_terms}) ({publication_search_terms}) {primary_scrape_date_str} ({site_operators})'
         
         logging.debug(f"  Generated search query: {search_query}")
@@ -383,27 +409,27 @@ def main():
         
         if not google_cse_results:
             logging.info(f"  No relevant search results found in Google CSE for {primary_scrape_date_str} with current query. Trying next date.")
-            time.sleep(2) # Pause before trying next random date
+            time.sleep(2) 
             continue
 
-        random.shuffle(google_cse_results) # Shuffle results to get variety if many come from one domain
+        random.shuffle(google_cse_results) 
         
         scraped_articles_for_synthesis = []
-        # Iterate through CSE results and try to scrape full text, up to MAX_SCRAPED_ARTICLES_FOR_SYNTHESIS
+        # Try to scrape only MAX_SCRAPED_ARTICLES_FOR_SYNTHESIS for faster generation
         for i, result in enumerate(google_cse_results):
             if len(scraped_articles_for_synthesis) >= MAX_SCRAPED_ARTICLES_FOR_SYNTHESIS:
-                break # Stop if we have enough articles for synthesis
+                break 
 
-            # Pre-filter: Skip URLs that look like non-article pages (e.g., footers, navs, directories)
             if any(term in result['link'].lower() for term in [
                 'forum', 'forums', 'discussion', 'comments', 'blog', 'index.html', '/tag/', '/category/', 
                 'masthead', 'contact', 'about', 'member', 'privacy', 'legal', 'jobs', 'careers', 
-                '.css', '.js', '.xml', 'robots.txt', 'login', 'signup', 'subscribe', 'cart', 'shop'
-                ]):
-                logging.debug(f"  Skipping {result['link']}: Appears to be a non-article page type from URL.")
+                '.css', '.js', '.xml', 'robots.txt', 'login', 'signup', 'subscribe', 'cart', 'shop',
+                # Also filter out generic main domain pages that are unlikely to be articles
+                '.org/', '.edu/', '.com/', '.net/' # Add more specific filters here if needed
+                ]) and result['link'].count('/') <= 3: # Simple heuristic: if it's just domain/subdomain, might not be an article
+                logging.debug(f"  Skipping {result['link']}: Appears to be a non-article page type from URL pattern.")
                 continue
 
-            # Pre-filter: Ensure AI keywords are strongly present in title/snippet before attempting full scrape
             potential_ai = False
             combined_text_from_search = (result['title'] + " " + result['snippet']).lower()
             if any(keyword in combined_text_from_search for keyword in AI_KEYWORDS):
@@ -417,61 +443,50 @@ def main():
             article_content = scrape_full_article_text(result['link'])
             
             if article_content:
-                # Add a check here for duplicate content (same URL) to prevent endless loops if many results point to same article
-                # Though 'existing_original_urls' handles this for *generated* articles, not for *input* scraped articles.
                 scraped_articles_for_synthesis.append(article_content)
                 logging.info(f"  Successfully scraped raw text from '{article_content['title']}'. Scraped count: {len(scraped_articles_for_synthesis)}")
             else:
                 logging.info(f"  Failed to scrape or validate content from {result['link']}.")
             
-            time.sleep(1.5) # Pause between scraping individual target articles from CSE results
+            time.sleep(1.5) 
 
         if not scraped_articles_for_synthesis:
             logging.info(f"  No suitable articles scraped for synthesis from {primary_scrape_date_str} after full scraping attempts. Trying next date.")
-            time.sleep(3) # Pause before trying next random date
+            time.sleep(3) 
             continue
 
-        # --- LLM Synthesis Step ---
         logging.info(f"  Proceeding to generate AI analysis using Gemini for {len(scraped_articles_for_synthesis)} articles scraped from {primary_scrape_date_str}.")
         generated_html_content = generate_ai_analysis(scraped_articles_for_synthesis, primary_scrape_date_str)
 
         if generated_html_content:
-            # Generate a unique filename for the new article based on generation time
             timestamp_slug = datetime.now().strftime("%Y%m%d%H%M%S")
             filename = f"ai_analysis_{timestamp_slug}.html"
             html_path = os.path.join(GENERATED_ARTICLES_DIR, filename)
             
-            # Get a random image URL for the analysis article's header
             header_image_url = get_header_image_url(filename) 
 
-            # Create the full HTML file by inserting generated content into the template
             full_article_html = create_full_html_article(
                 generated_html_content,
-                primary_scrape_date_str, # This date string will appear in the article header
+                primary_scrape_date_str, 
                 header_image_url
             )
             
-            # Save the newly generated HTML article
             with open(html_path, 'w', encoding='utf-8') as f:
                 f.write(full_article_html)
             
-            # Add metadata about this generated analysis to the main index file for the frontend
             analysis_data = {
                 "id": f"analysis_{timestamp_slug}",
-                "title": f"AI in the Era of {primary_scrape_date_str}", # Default title
-                "summary": "An insightful look back at historical AI concepts and their prescience.", # Default summary
-                "html_path": html_path.replace("\\", "/"), # For consistent web path in HTML index
+                "title": f"AI in the Era of {primary_scrape_date_str}", 
+                "summary": "An insightful look back at historical AI concepts and their prescience.", 
+                "html_path": html_path.replace("\\", "/"), 
                 "generated_date": datetime.now().isoformat(),
                 "original_sources_count": len(scraped_articles_for_synthesis),
                 "featured_image": header_image_url
             }
-            # Attempt to extract the actual title and hook/summary from the LLM's generated HTML
-            # This relies on the LLM generating the hook and h1 as requested in the prompt
             match_h1_for_index = re.search(r'<h1[^>]*>(.*?)<\/h1>', generated_html_content, re.IGNORECASE | re.DOTALL)
             if match_h1_for_index:
                 analysis_data['title'] = match_h1_for_index.group(1).strip()
             
-            # Note: The hook might be inside the main_article_body_html now since h1 is stripped
             match_hook_for_index = re.search(r'<p\s+class="hook"[^>]*>(.*?)<\/p>', generated_html_content, re.IGNORECASE | re.DOTALL)
             if match_hook_for_index:
                 analysis_data['summary'] = match_hook_for_index.group(1).strip()
@@ -482,7 +497,7 @@ def main():
         else:
             logging.warning("  Failed to generate analysis content with Gemini for this attempt.")
         
-        time.sleep(5) # Longer pause after a full attempt cycle (search + scrape + generate)
+        time.sleep(5) 
 
     save_index(generated_analyses_index)
     logging.info(f"Finished run. Added {analyses_added_this_run} new analysis articles. Total analyses in index: {len(generated_analyses_index)}")
