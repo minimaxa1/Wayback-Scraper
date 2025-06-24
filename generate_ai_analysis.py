@@ -32,7 +32,7 @@ AI_KEYWORDS = ["artificial intelligence", "ai", "machine learning", "deep learni
                "pattern recognition", "human-computer interaction", "AI winter", "inference engine",
                "data mining", "predictive analytics", "AI expert", "robot", "intelligent agent",
                "knowledge-based system", "computational linguistics", "turing test", "expert system shell",
-               "AI programming", "AI applications", "logic programming", "neural processing"] # Further expanded
+               "AI programming", "AI applications", "logic programming", "neural processing", "Cyberpunk"] # Further expanded
 
 PUBLICATION_KEYWORDS = ["paper", "proceedings", "journal", "report", "technical report", "conference", "symposium", "magazine", "article", "thesis", "dissertation", "review", "abstract"] # Added "abstract"
 
