@@ -1,4 +1,4 @@
-# scrape_ai_articles.py (Rebuilt for Google Custom Search JSON API)
+# scrape_ai_articles.py (Sixth Revision: Optimizing for Older Content with CSE)
 import requests
 import newspaper
 import os
@@ -11,36 +11,33 @@ from datetime import datetime, timedelta
 import logging
 
 # --- Configuration ---
-# You must set these as GitHub Secrets
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")  # Your Google Cloud API Key
-GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID")    # Your Custom Search Engine ID
-
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") 
+GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID")    
 GOOGLE_CSE_API_URL = "https://www.googleapis.com/customsearch/v1"
 
-AI_KEYWORDS = ["artificial intelligence", "ai", "machine learning", "deep learning", "neural network", "robotics", "nlp", "computer vision", "AGI", "Cyber", "VR", "Cyberpunk",]
+AI_KEYWORDS = ["artificial intelligence", "ai", "machine learning", "deep learning", "neural network", "robotics", "nlp", "computer vision", "AGI", "expert system", "neural computing"] # Added more keywords
 DATA_FILE = "ai_articles.json"
 IMAGES_DIR = "images/ai_time_capsule"
 
-MAX_ARTICLES_PER_RUN = 3  # Aim for a few articles per run to keep usage manageable
-MAX_SEARCH_ATTEMPTS = 50  # Max attempts to find a suitable random month/year with results
-REQUEST_TIMEOUT = 15      # Timeout for network requests to live sites and articles
+MAX_ARTICLES_PER_RUN = 1  # Keep it at 1 for older content, it's harder to find
+MAX_SEARCH_ATTEMPTS = 100  # More attempts for scarce older content
+REQUEST_TIMEOUT = 15      
 
-# Realistic range for good Google Search index coverage.
-# Use 2000-2016 for better success rate initially.
-PAST_YEAR_RANGE = (1990, 2016) 
+# *** CRITICAL CHANGE ***
+# Set the PAST_YEAR_RANGE to target your desired very old content.
+# This will make the script specifically look for content in this period.
+PAST_YEAR_RANGE = (1985, 2000) 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 os.makedirs(IMAGES_DIR, exist_ok=True)
 
 def get_random_past_month(start_year, end_year):
-    """Generates a random month and year within the specified range."""
     year = random.randint(start_year, end_year)
     month = random.randint(1, 12)
     return datetime(year, month, 1)
 
 def fetch_google_cse_results(query, num_results=10):
-    """Fetches search results from Google Custom Search JSON API."""
     if not GOOGLE_API_KEY or not GOOGLE_CSE_ID:
         logging.error("GOOGLE_API_KEY or GOOGLE_CSE_ID environment variables not set. Please check your GitHub Secrets.")
         return []
@@ -49,7 +46,7 @@ def fetch_google_cse_results(query, num_results=10):
         "key": GOOGLE_API_KEY,
         "cx": GOOGLE_CSE_ID,
         "q": query,
-        "num": num_results, # Max 10 per request for CSE API
+        "num": num_results, 
     }
     
     try:
@@ -59,7 +56,7 @@ def fetch_google_cse_results(query, num_results=10):
         data = response.json()
         
         articles = []
-        if 'items' in data: # CSE API returns results in 'items'
+        if 'items' in data:
             for result in data['items']:
                 if 'link' in result and 'title' in result:
                     if not any(ext in result['link'].lower() for ext in ['.pdf', '.zip', '.exe', '.jpg', '.png', '.gif']):
@@ -67,7 +64,7 @@ def fetch_google_cse_results(query, num_results=10):
                             "title": result['title'],
                             "link": result['link'],
                             "snippet": result.get('snippet', ''),
-                            "source_domain": result.get('displayLink', '').replace('www.', '') # Use displayLink for domain
+                            "source_domain": result.get('displayLink', '').replace('www.', '') 
                         })
         return articles
     except requests.exceptions.RequestException as e:
@@ -78,7 +75,6 @@ def fetch_google_cse_results(query, num_results=10):
         return []
 
 def process_image(image_url, article_id):
-    """Downloads, resizes, compresses, and saves an image."""
     try:
         img_data = requests.get(image_url, timeout=REQUEST_TIMEOUT).content
         img = Image.open(io.BytesIO(img_data))
@@ -97,7 +93,6 @@ def process_image(image_url, article_id):
         return None
 
 def is_ai_relevant(title, text):
-    """Checks if the article title or text contains AI-related keywords."""
     title_lower = title.lower()
     text_lower = text.lower()
     for keyword in AI_KEYWORDS:
@@ -106,7 +101,6 @@ def is_ai_relevant(title, text):
     return False
 
 def scrape_article(article_url, article_id, source_domain):
-    """Scrapes a single article using newspaper3k and processes it."""
     try:
         config = newspaper.Config()
         config.browser_user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -137,7 +131,7 @@ def scrape_article(article_url, article_id, source_domain):
             "title": article.title,
             "summary": summary,
             "original_url": article_url,
-            "wayback_url": None, # Not from Wayback Machine
+            "wayback_url": None, 
             "image_path": image_path.replace("\\", "/") if image_path else None,
             "publish_date": article.publish_date.isoformat() if article.publish_date else datetime.now().isoformat(),
             "source": source_domain
@@ -175,7 +169,6 @@ def main():
     
     logging.info("Starting Google Custom Search API AI Time Capsule scraping run...")
     
-    # Format for Month/Year name in query (e.g., "May 2003")
     month_names = ["January", "February", "March", "April", "May", "June", 
                    "July", "August", "September", "October", "November", "December"]
 
@@ -184,14 +177,19 @@ def main():
         
         random_month_date = get_random_past_month(*PAST_YEAR_RANGE)
         
-        # Create a query string that includes the month and year
-        # This is how we achieve historical date filtering with CSE API
         target_month_year_str = f"{month_names[random_month_date.month - 1]} {random_month_date.year}"
         logging.info(f"Attempt {attempts}/{MAX_SEARCH_ATTEMPTS}: Searching for articles from: {target_month_year_str}")
         
-        search_query = f"\"artificial intelligence\" news {target_month_year_str}"
+        # *** CRITICAL CHANGE ***
+        # Adjusted search query for older content. Removed "news"
+        # and added a broader phrase that might appear in early academic/tech discussions.
+        search_query = f"\"artificial intelligence\" OR \"AI\" OR \"machine learning\" {target_month_year_str} site:wired.com OR site:sciencedaily.com OR site:alife.org OR site:spectrum.ieee.org OR site:mit.edu OR site:stanford.edu OR site:ieee.org"
         
-        google_cse_results = fetch_google_cse_results(search_query, num_results=10) # Max 10 results per query for CSE
+        # Note: You can manually test this query in Google.com to see what kind of results you get.
+        # Example: "artificial intelligence" OR "AI" OR "machine learning" May 1998 site:wired.com OR site:sciencedaily.com
+        # If it finds nothing, Google CSE won't either.
+        
+        google_cse_results = fetch_google_cse_results(search_query, num_results=10) 
         
         if not google_cse_results:
             logging.info(f"  No relevant search results found for {target_month_year_str}.")
