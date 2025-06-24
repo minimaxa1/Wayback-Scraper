@@ -20,7 +20,7 @@ AI_KEYWORDS = ["artificial intelligence", "ai", "machine learning", "deep learni
                "robotics", "nlp", "computer vision", "AGI", "expert system", "neural computing", 
                "connectionism", "symbolic AI", "AI research", "AI program", 
                "computational intelligence", "cognitive science", "knowledge representation",
-               "fuzzy logic", "genetic algorithms"] # Added more
+               "fuzzy logic", "genetic algorithms", "VR", "Cyber", "Cyberpunk"] # Added more
 DATA_FILE = "ai_articles.json"
 IMAGES_DIR = "images/ai_time_capsule"
 
