@@ -25,7 +25,7 @@ GOOGLE_CSE_API_URL = "https://www.googleapis.com/customsearch/v1"
 # Google Generative AI (Gemini) API configuration
 # Your GOOGLE_API_KEY is used here. Ensure "Generative Language API" is enabled
 # in your Google Cloud Project for this API Key.
-GEMINI_MODEL = "gemini-pro" # Or "gemini-1.5-pro" for higher quality/cost if available and desired
+GEMINI_MODEL = "gemini-flash" # Or "gemini-1.5-pro" for higher quality/cost if available and desired
 
 # Data Storage paths
 GENERATED_ARTICLES_DIR = "generated_articles"
@@ -38,7 +38,7 @@ AI_KEYWORDS = ["artificial intelligence", "ai", "machine learning", "deep learni
                "connectionism", "symbolic AI", "cognitive science", "knowledge representation",
                "fuzzy logic", "genetic algorithms", "AI system", "cybernetics", "automaton",
                "pattern recognition", "human-computer interaction", "AI winter", "inference engine",
-               "data mining", "predictive analytics"] # Further expanded keywords
+               "data mining", "predictive analytics", "cyberpunk"] # Further expanded keywords
 
 # Keywords to prioritize specific publication types in Google CSE search queries
 PUBLICATION_KEYWORDS = ["paper", "proceedings", "journal", "report", "technical report", "conference", "symposium", "magazine", "article"] 
@@ -79,7 +79,8 @@ def get_random_past_month(start_year, end_year):
 
 def fetch_google_cse_results(query, num_results=10):
     """Fetches search results from Google Custom Search JSON API."""
-    if not GOOGLE_API_KEY or not GOLE_CSE_ID:
+    # THIS LINE IS THE FIX:
+    if not GOOGLE_API_KEY or not GOOGLE_CSE_ID: # Corrected from GOLE_CSE_ID
         logging.error("GOOGLE_API_KEY or GOOGLE_CSE_ID environment variables not set.")
         return []
 
