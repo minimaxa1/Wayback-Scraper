@@ -21,7 +21,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install requests beautifulsoup4 newspaper3k Pillow
+          pip install requests beautifulsoup4 newspaper3k Pillow lxml[html_clean]
 
       - name: Create images directory if it doesn't exist
         run: mkdir -p images/ai_time_capsule
