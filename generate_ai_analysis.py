@@ -1,4 +1,5 @@
-# generate_ai_analysis.py (Final/Most Intelligent Revision: Google CSE + Gemini for Deep Synthesis)
+# generate_ai_analysis.py (Complete Rebuild: Google CSE + Gemini for Deep Synthesis)
+
 import requests
 import newspaper
 import os
@@ -15,60 +16,70 @@ import logging
 import google.generativeai as genai 
 
 # --- Configuration ---
-# Google CSE API
+# Google Custom Search Engine (CSE) API credentials
+# These should be set as GitHub Secrets: GOOGLE_API_KEY, GOOGLE_CSE_ID
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")  # Your Google Cloud API Key
 GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID")    # Your Custom Search Engine ID
 GOOGLE_CSE_API_URL = "https://www.googleapis.com/customsearch/v1"
 
-# Google Generative AI (Gemini) API
-GEMINI_MODEL = "gemini-pro" # Consider "gemini-1.5-pro" for higher quality/cost if available and desired
-# Ensure Generative Language API is enabled in your Google Cloud project for your API_KEY
+# Google Generative AI (Gemini) API configuration
+# Your GOOGLE_API_KEY is used here. Ensure "Generative Language API" is enabled
+# in your Google Cloud Project for this API Key.
+GEMINI_MODEL = "gemini-pro" # Or "gemini-1.5-pro" for higher quality/cost if available and desired
 
-# Data Storage
+# Data Storage paths
 GENERATED_ARTICLES_DIR = "generated_articles"
 IMAGES_DIR = "images/ai_time_capsule" # This folder is for the main generated article's header image
-INDEX_FILE = "ai_analyses_index.json" # Index for generated articles
+INDEX_FILE = "ai_analyses_index.json" # JSON file to index all generated analysis articles
 
-# Scraping & Search Parameters
+# Keywords for AI content detection and synthesis prompting
 AI_KEYWORDS = ["artificial intelligence", "ai", "machine learning", "deep learning", "neural network", 
                "robotics", "nlp", "computer vision", "AGI", "expert system", "neural computing", 
                "connectionism", "symbolic AI", "cognitive science", "knowledge representation",
                "fuzzy logic", "genetic algorithms", "AI system", "cybernetics", "automaton",
-               "pattern recognition", "human-computer interaction", "AI winter"] # Added more
-# Broader terms for search query specific to academic/publication types
-PUBLICATION_KEYWORDS = ["paper", "proceedings", "journal", "report", "technical report", "conference", "symposium", "magazine"]
+               "pattern recognition", "human-computer interaction", "AI winter", "inference engine",
+               "data mining", "predictive analytics"] # Further expanded keywords
 
-MAX_SCRAPED_ARTICLES_FOR_SYNTHESIS = 3 # Number of articles to attempt to scrape for synthesis input to LLM (adjust based on LLM context window)
-MAX_SEARCH_ATTEMPTS_PER_RUN = 200 # Max attempts to find a suitable random month/year with results
-REQUEST_TIMEOUT = 25      # Timeout for network requests (slightly adjusted)
+# Keywords to prioritize specific publication types in Google CSE search queries
+PUBLICATION_KEYWORDS = ["paper", "proceedings", "journal", "report", "technical report", "conference", "symposium", "magazine", "article"] 
 
-# Historical Date Range
+# Scraping & Search execution parameters
+MAX_SCRAPED_ARTICLES_FOR_SYNTHESIS = 3 # Number of articles to attempt to scrape as input for LLM synthesis
+MAX_SEARCH_ATTEMPTS_PER_RUN = 200 # How many search queries (random months/years) to try before giving up on a single run
+REQUEST_TIMEOUT = 25      # Timeout in seconds for all network requests (CSE, article scraping, image downloads)
+
+# Historical Date Range for AI content search
 PAST_YEAR_RANGE = (1985, 2000) 
 
+# Configure logging for better visibility in GitHub Actions logs
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# Ensure necessary directories exist
 os.makedirs(GENERATED_ARTICLES_DIR, exist_ok=True)
-os.makedirs(IMAGES_DIR, exist_ok=True) # Ensure this exists for potential local image use (though we use Unsplash now)
+os.makedirs(IMAGES_DIR, exist_ok=True) 
 
 # --- Google Gemini Client Setup ---
+# The GOOGLE_API_KEY is used for Gemini authentication.
 if GOOGLE_API_KEY:
     try:
         genai.configure(api_key=GOOGLE_API_KEY)
         logging.info("Google Gemini API client configured.")
     except Exception as e:
-        logging.error(f"Failed to configure Google Gemini client: {e}")
+        logging.error(f"Failed to configure Google Gemini client. Error: {e}")
 else:
-    logging.warning("GOOGLE_API_KEY not set. LLM synthesis will not work.")
+    logging.warning("GOOGLE_API_KEY environment variable not set. LLM synthesis will not work.")
 
 # --- Utility Functions ---
 
 def get_random_past_month(start_year, end_year):
+    """Generates a random month and year within the specified range."""
     year = random.randint(start_year, end_year)
     month = random.randint(1, 12)
     return datetime(year, month, 1)
 
 def fetch_google_cse_results(query, num_results=10):
-    if not GOOGLE_API_KEY or not GOOGLE_CSE_ID:
+    """Fetches search results from Google Custom Search JSON API."""
+    if not GOOGLE_API_KEY or not GOLE_CSE_ID:
         logging.error("GOOGLE_API_KEY or GOOGLE_CSE_ID environment variables not set.")
         return []
 
@@ -76,45 +87,50 @@ def fetch_google_cse_results(query, num_results=10):
         "key": GOOGLE_API_KEY,
         "cx": GOOGLE_CSE_ID,
         "q": query,
-        "num": num_results, 
+        "num": num_results, # Max 10 results per request for CSE API
     }
     
     try:
         logging.info(f"  Querying Google CSE for: '{query}'")
         response = requests.get(GOOGLE_CSE_API_URL, params=params, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status() 
+        response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
         data = response.json()
         
         results = []
-        if 'items' in data:
+        if 'items' in data: # CSE API returns results in the 'items' key
             for item in data['items']:
                 if 'link' in item and 'title' in item:
-                    # Allow PDFs and common document types, but filter clear non-articles
-                    if not any(ext in item['link'].lower() for ext in ['.zip', '.exe', '.jpg', '.png', '.gif', 'forum', 'forums', 'discussion', 'archive.org', 'support.google.com', 'jobs.google.com', 'developers.google.com']):
+                    # Filter out common non-article/non-document types based on URL extensions/paths
+                    if not any(ext in item['link'].lower() for ext in [
+                        '.zip', '.exe', '.jpg', '.png', '.gif', '.mp3', '.mp4', '.avi', # Media files
+                        'forum', 'forums', 'discussion', 'archive.org', 'support.google.com', # Community/Support sites
+                        'jobs.google.com', 'developers.google.com', 'policies.google.com', # Google internal/utility links
+                        'privacy', 'legal', 'terms', 'about', 'contact', 'careers', 'sitemap.xml', 'robots.txt' # Site infrastructure
+                        ]):
                         results.append({
                             "title": item['title'],
                             "link": item['link'],
                             "snippet": item.get('snippet', ''),
-                            "source_domain": item.get('displayLink', '').replace('www.', '') 
+                            "source_domain": item.get('displayLink', '').replace('www.', '') # Use displayLink for clean domain
                         })
         return results
     except requests.exceptions.RequestException as e:
         logging.error(f"Error fetching Google CSE results: {e}")
         return []
     except json.JSONDecodeError as e:
-        logging.error(f"JSON decode error from Google CSE response: {e}. Response: {response.text[:200]}...")
+        logging.error(f"JSON decode error from Google CSE response: {e}. Response preview: {response.text[:200]}...")
         return []
 
 def get_header_image_url(article_id):
     """Generates a random image URL from Unsplash for the generated article header."""
     try:
         # Using a random query for a placeholder image to match the template's style.
-        # Added more relevant keywords for AI/tech visuals.
-        random_unsplash_url = f"https://source.unsplash.com/random/1080x720?technology,abstract,futuristic,circuit,neural,network,data,ai&sig={random.randint(1,1000000)}"
+        # Added relevant keywords for AI/tech visuals to increase relevance.
+        random_unsplash_url = f"https://source.unsplash.com/random/1080x720?technology,abstract,futuristic,circuit,neural,network,data,ai,robotics&sig={random.randint(1,1000000)}"
         return random_unsplash_url
     except Exception as e:
         logging.warning(f"Could not get random Unsplash image: {e}")
-        # Fallback to a static placeholder image from user's template
+        # Fallback to a static placeholder image from user's template if Unsplash fails
         return "https://images.unsplash.com/photo-1445160307478-288488e5da27?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NjUwNzN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3NTA2ODE1NzB8&ixlib=rb-4.1.0&q=80&w=1080" 
 
 def is_ai_relevant(title, text):
@@ -132,19 +148,21 @@ def scrape_full_article_text(article_url):
         config = newspaper.Config()
         config.browser_user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         config.request_timeout = REQUEST_TIMEOUT
-        config.fetch_images = False 
-        config.MAX_FILE_MEM_KB = 5000 
-        config.browser = "chrome" 
+        config.fetch_images = False # No need to fetch article images, we use a separate header image
+        config.MAX_FILE_MEM_KB = 5000 # Increased memory for larger documents/PDFs
+        config.browser = "chrome" # Specify browser for better parsing compatibility
         config.memoize_articles = False # Ensure fresh download each time if debugging locally
 
         article = newspaper.Article(article_url, config=config)
         article.download()
         article.parse()
         
-        if not article.title or not article.text or len(article.text) < 250: # Increased minimum text length for synthesis quality
+        # Require substantial text for quality synthesis.
+        if not article.title or not article.text or len(article.text) < 250: 
             logging.info(f"Skipping {article_url}: Missing title or too short content for synthesis (len {len(article.text) if article.text else 0}).")
             return None
 
+        # Perform AI relevance check on the full scraped content
         if not is_ai_relevant(article.title, article.text):
             logging.info(f"Skipping {article_url}: Not AI relevant after full content check for synthesis.")
             return None
@@ -154,7 +172,7 @@ def scrape_full_article_text(article_url):
             "text": article.text,
             "url": article_url,
             "publish_date": article.publish_date.isoformat() if article.publish_date else "Unknown",
-            "source": article.source_url 
+            "source": article.source_url # This is the base domain of the article
         }
     except newspaper.article.ArticleException as e:
         logging.warning(f"Newspaper3k error processing {article_url}: {e}")
@@ -168,7 +186,7 @@ def scrape_full_article_text(article_url):
 
 def generate_ai_analysis(scraped_articles, historical_date_str):
     """Uses Google Gemini API to synthesize an article based on scraped content."""
-    if not GOOGLE_API_KEY: 
+    if not GOOGLE_API_KEY: # Check if API key is configured
         logging.error("Google Gemini client not configured. Cannot generate analysis.")
         return None
 
@@ -178,20 +196,19 @@ def generate_ai_analysis(scraped_articles, historical_date_str):
 
     combined_content = ""
     for i, article in enumerate(scraped_articles):
-        # Provide source information prominently for LLM to integrate
+        # Format input content clearly for the LLM to understand sources
         combined_content += f"--- Source Article {i+1} ---\n"
         combined_content += f"Title: {article['title']}\n"
         combined_content += f"URL: {article['url']}\n"
         combined_content += f"Published Date (as scraped): {article['publish_date']}\n"
         combined_content += f"Source Domain: {article['source']}\n"
-        # Limit text sent to LLM for token/cost reasons, but ensure enough context
-        # Aim for 1500-2000 tokens per article for Gemini-pro, adjust as needed.
-        # This will vary per article. Sum of text should fit prompt context window.
+        # Limit text sent to LLM for token/cost reasons. Sum of all text should fit Gemini's context window.
         combined_content += f"Content Excerpt:\n{article['text'][:3000]}...\n\n" 
     
-    # --- The "Prompt Intel" ---
-    # This prompt is meticulously designed to elicit the desired output,
-    # emulating the analytical and insightful style of your blog.
+    # --- The "Prompt Intel" for Google Gemini ---
+    # This prompt is meticulously crafted to elicit the desired output:
+    # A deep, insightful, novel article in your blog's analytical style,
+    # correlating historical AI views with current AI technology.
     prompt_template = f"""
     You are an **AI News Detective** and a **Public Intellectual** for the 'Architecting You' blog (https://minimaxa1.github.io/Architecting-You/). Your mission is to delve into historical technology discussions, specifically around Artificial Intelligence from the era of **{historical_date_str}**, based on the provided articles.
 
@@ -237,42 +254,46 @@ def generate_ai_analysis(scraped_articles, historical_date_str):
                 candidate_count=1,
                 stop_sequences=None,
                 max_output_tokens=2500, # Increased max output tokens for longer, richer articles
-                temperature=0.8, # Slightly increased for more creativity in synthesis
+                temperature=0.8, # Controls creativity (0.0 for factual, 1.0 for creative). Higher for more "thought-compelling."
                 top_p=0.95,
                 top_k=40,
             ),
         )
+        # Access the text from the response. Ensure to handle if response.text is empty or not as expected.
         generated_text = response.candidates[0].content.parts[0].text
         logging.info("Successfully generated analysis using Google Gemini API.")
         return generated_text
     except Exception as e:
         logging.error(f"Error generating AI analysis with Google Gemini: {e}")
-        if hasattr(e, 'response') and hasattr(e.response, 'text'):
+        if hasattr(e, 'response') and hasattr(e.response, 'text'): # More robust error logging for API issues
             logging.error(f"Gemini API error response: {e.response.text}")
         return None
 
-
 def create_full_html_article(generated_content, primary_scrape_date_str, image_url):
-    """Inserts generated content into the full HTML template and extracts dynamic parts."""
+    """
+    Inserts generated content into the full HTML template, extracts dynamic parts 
+    (title, hook) from the generated_content, and formats the full HTML page.
+    """
     
-    # Attempt to extract dynamic content based on LLM's expected output structure
+    # Initialize with default placeholders
     generated_title = f"AI in the Era of {primary_scrape_date_str}"
     generated_hook = "An insightful look back at historical AI concepts and their prescience."
-    main_article_body_html = generated_content 
+    main_article_body_html = generated_content # Default to using all generated content as body
     
-    # Regex to find <h1>...</h1> (non-greedy, DOTALL for multiline)
-    match_h1 = re.search(r'<h1>(.*?)<\/h1>', generated_content, re.IGNORECASE | re.DOTALL)
+    # Attempt to extract <h1> content and remove it from the body
+    match_h1 = re.search(r'<h1[^>]*>(.*?)<\/h1>', generated_content, re.IGNORECASE | re.DOTALL)
     if match_h1:
         generated_title = match_h1.group(1).strip()
-        main_article_body_html = re.sub(r'<h1>.*?<\/h1>', '', main_article_body_html, flags=re.IGNORECASE | re.DOTALL, count=1).strip()
+        main_article_body_html = re.sub(r'<h1[^>]*>.*?<\/h1>', '', main_article_body_html, flags=re.IGNORECASE | re.DOTALL, count=1).strip()
 
-    # Regex to find <p class="hook">...</p>
-    match_hook = re.search(r'<p\s+class="hook">(.*?)<\/p>', main_article_body_html, re.IGNORECASE | re.DOTALL)
+    # Attempt to extract <p class="hook"> content and remove it from the body
+    # Search within the remaining content (after h1 removal)
+    match_hook = re.search(r'<p\s+class="hook"[^>]*>(.*?)<\/p>', main_article_body_html, re.IGNORECASE | re.DOTALL)
     if match_hook:
         generated_hook = match_hook.group(1).strip()
-        main_article_body_html = re.sub(r'<p\s+class="hook">.*?<\/p>', '', main_article_body_html, flags=re.IGNORECASE | re.DOTALL, count=1).strip()
-
+        main_article_body_html = re.sub(r'<p\s+class="hook"[^>]*>.*?<\/p>', '', main_article_body_html, flags=re.IGNORECASE | re.DOTALL, count=1).strip()
     
+    # The full HTML template string. All literal curly braces in CSS/JS are doubled `{{` `}}`
     html_template = f"""
 <!DOCTYPE html>
 <html lang="en">
@@ -283,7 +304,28 @@ def create_full_html_article(generated_content, primary_scrape_date_str, image_u
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,700;1,400&family=Source+Code+Pro:wght@400;700&display=swap" rel="stylesheet">
-<style>:root{{--grid-color:rgba(200,200,200,0.1);--text-color:#E0E0E0;--bg-color:#111;--panel-bg-color:rgba(18,18,18,0.9);--panel-border-color:#444;--highlight-color:#00BFFF;--quote-border-color:#4A90E2}}body{{font-family:'Lora',serif;line-height:1.8;color:var(--text-color);background-color:var(--bg-color);background-image:linear-gradient(var(--grid-color) 1px,transparent 1px),linear-gradient(90deg,var(--grid-color) 1px,transparent 1px);background-size:40px 40px;margin:0;padding:2rem}}.main-container{{max-width:800px;margin:2rem auto}}.main-header{{text-align:center;margin-bottom:2rem}}h1{{font-family:'Source Code Pro',monospace;font-size:2.8rem;font-weight:700;color:#FFF;text-transform:uppercase;letter-spacing:.3em;word-spacing:.5em;margin:0;padding-left:.3em}}.main-header p{{font-family:'Source Code Pro',monospace;font-size:.9rem;text-transform:uppercase;letter-spacing:.2em;color:#FFF;margin-top:1rem}}.article-image{{width:100%;height:auto;margin-bottom:2rem;border:1px solid var(--panel-border-color)}}.content-panel{{background-color:var(--panel-bg-color);border:1px solid var(--panel-border-color);padding:2.5rem;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}}.content-panel p,.content-panel li{{font-size:1.1rem}}.content-panel .hook{{font-size:1.3rem;line-height:1.7;font-style:italic;color:#BDBDBD;margin-bottom:2rem}}.content-panel h3{{font-family:'Source Code Pro',monospace;font-size:1.5rem;margin-top:2.5rem;color:#FFF}}.content-panel blockquote{{font-family:'Lora',serif;font-size:1.4rem;font-style:italic;font-weight:700;border-left:4px solid var(--quote-border-color);padding-left:1.5rem;margin:2.5rem 0;color:#A7C7E7}}.content-panel .highlight{{background-color:rgba(0,191,255,0.15);padding:.1rem .3rem}}.content-panel .section-divider{{border:0;height:1px;background-color:#444;margin:3rem 0}}.cta-container{{background-color:var(--panel-bg-color);border:1px solid var(--panel-border-color);backdrop-filter:blur(8px);margin-top:2rem;text-align:center}}.cta-container .panel-title-bar{{background-color:var(--panel-border-color);color:#FFF;padding:.5rem 1rem;font-family:'Source Code Pro',monospace;font-weight:700;text-transform:uppercase;letter-spacing:.1em}}.cta-container .panel-body{{padding:1.5rem}}.button-container{{display:flex;justify-content:center;gap:1.5rem;margin-top:2rem;flex-wrap:wrap}}.action-button{{font-family:'Source Code Pro',monospace;font-weight:700;text-transform:uppercase;letter-spacing:.1em;background-color:transparent;color:var(--highlight-color);border:2px solid var(--highlight-color);padding:.7rem 1.2rem;font-size:.9rem;text-decoration:none;transition:background-color .2s,color .2s}.action-button:hover{{background-color:var(--highlight-color);color:var(--bg-color)}}</style></head>
+<style>
+:root{{{{--grid-color:rgba(200,200,200,0.1);--text-color:#E0E0E0;--bg-color:#111;--panel-bg-color:rgba(18,18,18,0.9);--panel-border-color:#444;--highlight-color:#00BFFF;--quote-border-color:#4A90E2}}}}
+body{{{{font-family:'Lora',serif;line-height:1.8;color:var(--text-color);background-color:var(--bg-color);background-image:linear-gradient(var(--grid-color) 1px,transparent 1px),linear-gradient(90deg,var(--grid-color) 1px,transparent 1px);background-size:40px 40px;margin:0;padding:2rem}}}}
+.main-container{{{{max-width:800px;margin:2rem auto}}}}
+.main-header{{{{text-align:center;margin-bottom:2rem}}}}
+h1{{{{font-family:'Source Code Pro',monospace;font-size:2.8rem;font-weight:700;color:#FFF;text-transform:uppercase;letter-spacing:.3em;word-spacing:.5em;margin:0;padding-left:.3em}}}}
+.main-header p{{{{font-family:'Source Code Pro',monospace;font-size:.9rem;text-transform:uppercase;letter-spacing:.2em;color:#FFF;margin-top:1rem}}}}
+.article-image{{{{width:100%;height:auto;margin-bottom:2rem;border:1px solid var(--panel-border-color)}}}}
+.content-panel{{{{background-color:var(--panel-bg-color);border:1px solid var(--panel-border-color);padding:2.5rem;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}}}}
+.content-panel p,.content-panel li{{{{font-size:1.1rem}}}}
+.content-panel .hook{{{{font-size:1.3rem;line-height:1.7;font-style:italic;color:#BDBDBD;margin-bottom:2rem}}}}
+.content-panel h3{{{{font-family:'Source Code Pro',monospace;font-size:1.5rem;margin-top:2.5rem;color:#FFF}}}}
+.content-panel blockquote{{{{font-family:'Lora',serif;font-size:1.4rem;font-style:italic;font-weight:700;border-left:4px solid var(--quote-border-color);padding-left:1.5rem;margin:2.5rem 0;color:#A7C7E7}}}}
+.content-panel .highlight{{{{background-color:rgba(0,191,255,0.15);padding:.1rem .3rem}}}}
+.content-panel .section-divider{{{{border:0;height:1px;background-color:#444;margin:3rem 0}}}}
+.cta-container{{{{background-color:var(--panel-bg-color);border:1px solid var(--panel-border-color);backdrop-filter:blur(8px);margin-top:2rem;text-align:center}}}}
+.cta-container .panel-title-bar{{{{background-color:var(--panel-border-color);color:#FFF;padding:.5rem 1rem;font-family:'Source Code Pro',monospace;font-weight:700;text-transform:uppercase;letter-spacing:.1em}}}}
+.cta-container .panel-body{{{{padding:1.5rem}}}}
+.button-container{{{{display:flex;justify-content:center;gap:1.5rem;margin-top:2rem;flex-wrap:wrap}}}}
+.action-button{{{{font-family:'Source Code Pro',monospace;font-weight:700;text-transform:uppercase;letter-spacing:.1em;background-color:transparent;color:var(--highlight-color);border:2px solid var(--highlight-color);padding:.7rem 1.2rem;font-size:.9rem;text-decoration:none;transition:background-color .2s,color .2s}}}}
+.action-button:hover{{{{background-color:var(--highlight-color);color:var(--bg-color)}}}}
+</style></head>
 <body>
 <div class="main-container">
     <header class="main-header">
@@ -314,16 +356,18 @@ def create_full_html_article(generated_content, primary_scrape_date_str, image_u
     return html_template
 
 def load_existing_index():
+    """Loads the index of previously generated analysis articles."""
     if os.path.exists(INDEX_FILE):
         with open(INDEX_FILE, 'r', encoding='utf-8') as f:
             try:
                 return json.load(f)
             except json.JSONDecodeError:
-                logging.warning(f"Corrupt or empty {INDEX_FILE}, starting fresh.")
+                logging.warning(f"Corrupt or empty {INDEX_FILE}. Starting fresh.")
                 return []
     return []
 
 def save_index(index_data):
+    """Saves the updated index of generated analysis articles."""
     with open(INDEX_FILE, 'w', encoding='utf-8') as f:
         json.dump(index_data, f, indent=2, ensure_ascii=False)
 
@@ -333,7 +377,7 @@ def main():
     analyses_added_this_run = 0
     attempts = 0
     
-    logging.info("Starting Google CSE + Google Gemini AI Time Capsule Generation run...")
+    logging.info("Starting Google CSE + Google Gemini AI Time Capsule Generation run (AI News Detective Mode)...")
     
     month_names = ["January", "February", "March", "April", "May", "June", 
                    "July", "August", "September", "October", "November", "December"]
@@ -346,65 +390,73 @@ def main():
         primary_scrape_date_str = f"{month_names[random_month_date.month - 1]} {random_month_date.year}"
         logging.info(f"Attempt {attempts}/{MAX_SEARCH_ATTEMPTS_PER_RUN}: Searching for raw articles from: {primary_scrape_date_str}")
         
-        # *** AGGRESSIVELY TARGETED SEARCH QUERY FOR 1985-2000 ACADEMIC/JOURNAL CONTENT ***
-        # Increased number of keywords and focused on academic/journal sites.
-        ai_search_terms = " OR ".join(f'"{kw}"' for kw in AI_KEYWORDS) # Format keywords for OR search
-        publication_search_terms = " OR ".join(f'"{kw}"' for kw in PUBLICATION_KEYWORDS) # Format publication keywords for OR search
+        # --- Aggressively Targeted Search Query for 1985-2000 Academic/Journal Content ---
+        # Combines AI terms, publication type terms, and targeted domains.
+        ai_search_terms = " OR ".join(f'"{kw}"' for kw in AI_KEYWORDS) 
+        publication_search_terms = " OR ".join(f'"{kw}"' for kw in PUBLICATION_KEYWORDS) 
 
-        # Domains identified as relevant for academic/journal content from your finds
+        # Domains identified as relevant for academic/journal content and early tech news
         targeted_domains = [
-            "aaai.org", "jair.org", "mit.edu", "stanford.edu", "cmu.edu", "berkeley.edu", # Universities & AI Societies
-            "ieee.org", "spectrum.ieee.org", "acm.org", "dl.acm.org",                     # Professional Societies / Digital Libraries
-            "sciencedirect.com", "onlinelibrary.wiley.com",                              # Major Publishers (might be paywalled)
-            "wired.com", "sciencedaily.com",                                              # Late 90s Tech News
-            "ijcai.org", "nips.cc", "icml.cc"                                             # Conference sites (for proceedings)
+            "aaai.org", "jair.org", # Key AI Societies/Journals
+            "mit.edu", "stanford.edu", "cmu.edu", "berkeley.edu", # Leading Universities in AI research
+            "ieee.org", "spectrum.ieee.org", "acm.org", "dl.acm.org", # Professional Societies / Digital Libraries
+            "sciencedirect.com", "onlinelibrary.wiley.com", # Major Academic Publishers (can be paywalled)
+            "wired.com", "sciencedaily.com", # Early Tech News / Science News
+            "ijcai.org", "nips.cc", "icml.cc" # Conference sites (for proceedings)
         ]
         site_operators = " OR ".join(f"site:{d}" for d in targeted_domains)
 
-        # Combine everything into the final query
+        # Final Google CSE query string
         search_query = f'({ai_search_terms}) ({publication_search_terms}) {primary_scrape_date_str} ({site_operators})'
         
-        # Example: ("artificial intelligence" OR "AI") (paper OR journal) May 1990 (site:mit.edu OR site:aaai.org)
         logging.debug(f"  Generated search query: {search_query}")
         
         google_cse_results = fetch_google_cse_results(search_query, num_results=10) 
         
         if not google_cse_results:
             logging.info(f"  No relevant search results found in Google CSE for {primary_scrape_date_str} with current query. Trying next date.")
-            time.sleep(2) 
+            time.sleep(2) # Pause before trying next random date
             continue
 
-        random.shuffle(google_cse_results) 
+        random.shuffle(google_cse_results) # Shuffle results to get variety if many come from one domain
         
         scraped_articles_for_synthesis = []
-        # Try to scrape up to MAX_SCRAPED_ARTICLES_FOR_SYNTHESIS articles
+        # Iterate through CSE results and try to scrape full text, up to MAX_SCRAPED_ARTICLES_FOR_SYNTHESIS
         for i, result in enumerate(google_cse_results):
             if len(scraped_articles_for_synthesis) >= MAX_SCRAPED_ARTICLES_FOR_SYNTHESIS:
-                break
-            
-            # Additional pre-filter if the link itself indicates non-article/paper content
-            if any(term in result['link'].lower() for term in ['forum', 'forums', 'discussion', 'comments', 'blog', 'index.html', '/tag/', '/category/', 'masthead', 'contact', 'about', 'member', 'privacy', 'legal', 'jobs', 'careers', '.css', '.js', '.xml', 'robots.txt']):
-                logging.debug(f"  Skipping {result['link']}: Appears to be a non-article page type.")
+                break # Stop if we have enough articles for synthesis
+
+            # Pre-filter: Skip URLs that look like non-article pages (e.g., footers, navs, directories)
+            if any(term in result['link'].lower() for term in [
+                'forum', 'forums', 'discussion', 'comments', 'blog', 'index.html', '/tag/', '/category/', 
+                'masthead', 'contact', 'about', 'member', 'privacy', 'legal', 'jobs', 'careers', 
+                '.css', '.js', '.xml', 'robots.txt', 'login', 'signup', 'subscribe', 'cart', 'shop'
+                ]):
+                logging.debug(f"  Skipping {result['link']}: Appears to be a non-article page type from URL.")
                 continue
 
-            # Ensure AI keywords are strongly present in title/snippet before attempting full scrape
+            # Pre-filter: Ensure AI keywords are strongly present in title/snippet before attempting full scrape
             potential_ai = False
             combined_text_from_search = (result['title'] + " " + result['snippet']).lower()
             if any(keyword in combined_text_from_search for keyword in AI_KEYWORDS):
                 potential_ai = True
 
             if not potential_ai:
-                logging.debug(f"  Skipping {result['link']}: No strong AI keywords in title/snippet.")
+                logging.debug(f"  Skipping {result['link']}: No strong AI keywords in title/snippet from search result.")
                 continue
 
             logging.info(f"  Attempting to scrape raw text from potential AI article: {result['link']}")
             article_content = scrape_full_article_text(result['link'])
             
             if article_content:
+                # Add a check here for duplicate content (same URL) to prevent endless loops if many results point to same article
+                # Though 'existing_original_urls' handles this for *generated* articles, not for *input* scraped articles.
                 scraped_articles_for_synthesis.append(article_content)
                 logging.info(f"  Successfully scraped raw text from '{article_content['title']}'. Scraped count: {len(scraped_articles_for_synthesis)}")
+            else:
+                logging.info(f"  Failed to scrape or validate content from {result['link']}.")
             
-            time.sleep(1.5) # Pause between scraping individual target articles
+            time.sleep(1.5) # Pause between scraping individual target articles from CSE results
 
         if not scraped_articles_for_synthesis:
             logging.info(f"  No suitable articles scraped for synthesis from {primary_scrape_date_str} after full scraping attempts. Trying next date.")
@@ -412,44 +464,46 @@ def main():
             continue
 
         # --- LLM Synthesis Step ---
-        logging.info(f"  Proceeding to generate AI analysis using Gemini for {len(scraped_articles_for_synthesis)} scraped articles from {primary_scrape_date_str}.")
+        logging.info(f"  Proceeding to generate AI analysis using Gemini for {len(scraped_articles_for_synthesis)} articles scraped from {primary_scrape_date_str}.")
         generated_html_content = generate_ai_analysis(scraped_articles_for_synthesis, primary_scrape_date_str)
 
         if generated_html_content:
-            # Generate a unique filename for the new article
+            # Generate a unique filename for the new article based on generation time
             timestamp_slug = datetime.now().strftime("%Y%m%d%H%M%S")
             filename = f"ai_analysis_{timestamp_slug}.html"
             html_path = os.path.join(GENERATED_ARTICLES_DIR, filename)
             
-            # Get a random image URL for the article header
+            # Get a random image URL for the analysis article's header
             header_image_url = get_header_image_url(filename) 
 
-            # Create the full HTML file
+            # Create the full HTML file by inserting generated content into the template
             full_article_html = create_full_html_article(
                 generated_html_content,
-                primary_scrape_date_str, # Date string for header
+                primary_scrape_date_str, # This date string will appear in the article header
                 header_image_url
             )
             
+            # Save the newly generated HTML article
             with open(html_path, 'w', encoding='utf-8') as f:
                 f.write(full_article_html)
             
-            # Add to index for frontend display
+            # Add metadata about this generated analysis to the main index file for the frontend
             analysis_data = {
                 "id": f"analysis_{timestamp_slug}",
-                "title": f"AI in the Era of {primary_scrape_date_str}", 
-                "summary": "An insightful look back at historical AI concepts and their prescience.", 
-                "html_path": html_path.replace("\\", "/"), # For web path consistency
+                "title": f"AI in the Era of {primary_scrape_date_str}", # Default title
+                "summary": "An insightful look back at historical AI concepts and their prescience.", # Default summary
+                "html_path": html_path.replace("\\", "/"), # For consistent web path in HTML index
                 "generated_date": datetime.now().isoformat(),
                 "original_sources_count": len(scraped_articles_for_synthesis),
                 "featured_image": header_image_url
             }
-            # Attempt to extract title and summary from the generated_html_content for the index
+            # Attempt to extract the actual title and hook/summary from the LLM's generated HTML
             # This relies on the LLM generating the hook and h1 as requested in the prompt
             match_h1_for_index = re.search(r'<h1[^>]*>(.*?)<\/h1>', generated_html_content, re.IGNORECASE | re.DOTALL)
             if match_h1_for_index:
                 analysis_data['title'] = match_h1_for_index.group(1).strip()
             
+            # Note: The hook might be inside the main_article_body_html now since h1 is stripped
             match_hook_for_index = re.search(r'<p\s+class="hook"[^>]*>(.*?)<\/p>', generated_html_content, re.IGNORECASE | re.DOTALL)
             if match_hook_for_index:
                 analysis_data['summary'] = match_hook_for_index.group(1).strip()
@@ -458,7 +512,7 @@ def main():
             analyses_added_this_run += 1
             logging.info(f"  SUCCESS: Generated new analysis article: {filename}")
         else:
-            logging.warning("  Failed to generate analysis content for this attempt with Gemini.")
+            logging.warning("  Failed to generate analysis content with Gemini for this attempt.")
         
         time.sleep(5) # Longer pause after a full attempt cycle (search + scrape + generate)
 
