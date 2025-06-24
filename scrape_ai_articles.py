@@ -1,6 +1,5 @@
-# scrape_ai_articles.py (Fifth Revision: Realistic Date Range)
+# scrape_ai_articles.py (Rebuilt for Google Custom Search JSON API)
 import requests
-from bs4 import BeautifulSoup 
 import newspaper
 import os
 import json
@@ -12,106 +11,74 @@ from datetime import datetime, timedelta
 import logging
 
 # --- Configuration ---
-TARGET_DOMAINS = [
-    # Prioritized based on your search results and earlier capture dates
-    "kurzweilai.net",       # Captures from 2001
-    "ai-depot.com",         # Captures from 2001
-    "generation5.org",      # Captures from 2000
-    "sciencedaily.com",     # Captures from 1996, broad science news, likely some AI
-    "alife.org",            # International Society of Artificial Life, captures from 1998, highly relevant
-    "inform.com",           # Captures from 1998, broader news platform, might have AI
-    "wired.com",            # Captures from 1993, good for late 90s onwards
-    "cnet.com",             # Captures from 1994, good for late 90s onwards
-    "arstechnica.com",      # Captures from 1998, good for late 90s onwards
-    "spectrum.ieee.org",    # Good for more academic/deep tech, older captures
+# You must set these as GitHub Secrets
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")  # Your Google Cloud API Key
+GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID")    # Your Custom Search Engine ID
 
-    # Other relevant candidates from your list (some might start later or be niche)
-    "phys.org",             # Science news, captures from 2002
-    "esciencenews.com",     # Science news, captures from 2008
-    "aihub.org",            # AI focused, captures from 2008
-    "agi-08.org",           # Specific conference, captures from 2007, might have papers
-    "vieartificielle.com",  # AI focused, captures from 2001
-    "newstrove.com",        # News aggregator, captures from 2000
-    "silobreaker.com",      # News aggregator, captures from 2005
-    "gamedev.net",          # Game AI might be present, captures from 1999
-    "oreillynet.com",       # O'Reilly technical content, captures from 2000
-    "advogato.org",         # Open source tech community, captures from 1999
-    "webindia123.com",      # General news portal, captures from 2000 (lower relevance chance)
-    # Excluded: nursingtimes.net, psychology.about.com, etc., as too tangential
-]
+GOOGLE_CSE_API_URL = "https://www.googleapis.com/customsearch/v1"
 
-AI_KEYWORDS = ["artificial intelligence", "ai", "machine learning", "deep learning", "neural network", "robotics", "nlp", "computer vision", "AGI"]
+AI_KEYWORDS = ["artificial intelligence", "ai", "machine learning", "deep learning", "neural network", "robotics", "nlp", "computer vision", "AGI", "Cyber", "VR", "Cyberpunk,]
 DATA_FILE = "ai_articles.json"
 IMAGES_DIR = "images/ai_time_capsule"
 
-# --- IMPORTANT CHANGES FOR DATE RANGE AND TIMEOUTS ---
-MAX_ARTICLES_PER_RUN = 1  
-MAX_DAILY_ATTEMPTS = 150  
-REQUEST_TIMEOUT = 30      
-# Adjusted to a more realistic range for the TARGET_DOMAINS provided.
-# This will significantly increase the chance of finding content.
-PAST_YEAR_RANGE = (1998, 2016) 
-WAYBACK_CDX_API = "http://web.archive.org/cdx/search/cdx"
+MAX_ARTICLES_PER_RUN = 3  # Aim for a few articles per run to keep usage manageable
+MAX_SEARCH_ATTEMPTS = 50  # Max attempts to find a suitable random month/year with results
+REQUEST_TIMEOUT = 15      # Timeout for network requests to live sites and articles
+
+# Realistic range for good Google Search index coverage.
+# Use 2000-2016 for better success rate initially.
+PAST_YEAR_RANGE = (1990, 2016) 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 os.makedirs(IMAGES_DIR, exist_ok=True)
 
-def get_random_past_date(start_year, end_year):
-    start_date = datetime(start_year, 1, 1)
-    end_date = datetime(end_year + 1, 1, 1) - timedelta(days=1)
-    
-    time_between_dates = end_date - start_date
-    days_between_dates = time_between_dates.days # Corrected line from previous error
-    
-    if days_between_dates <= 0:
-        logging.warning(f"Invalid date range for random date generation: {start_year}-{end_year}")
-        return start_date
-    random_number_of_days = random.randrange(days_between_dates)
-    random_date = start_date + timedelta(days=random_number_of_days)
-    return random_date
+def get_random_past_month(start_year, end_year):
+    """Generates a random month and year within the specified range."""
+    year = random.randint(start_year, end_year)
+    month = random.randint(1, 12)
+    return datetime(year, month, 1)
 
-def fetch_wayback_snapshots(domain, date_str, limit=50):
+def fetch_google_cse_results(query, num_results=10):
+    """Fetches search results from Google Custom Search JSON API."""
+    if not GOOGLE_API_KEY or not GOOGLE_CSE_ID:
+        logging.error("GOOGLE_API_KEY or GOOGLE_CSE_ID environment variables not set. Please check your GitHub Secrets.")
+        return []
+
     params = {
-        "url": f"{domain}/*", 
-        "from": date_str,
-        "to": date_str,
-        "limit": limit,
-        "output": "json",
-        "collapse": "urlkey", 
-        "filter": ["statuscode:200", "!mimetype:image/jpeg", "!mimetype:image/png"],
+        "key": GOOGLE_API_KEY,
+        "cx": GOOGLE_CSE_ID,
+        "q": query,
+        "num": num_results, # Max 10 per request for CSE API
     }
     
     try:
-        logging.info(f"  Querying CDX for {domain} on {date_str}...")
-        response = requests.get(WAYBACK_CDX_API, params=params, timeout=REQUEST_TIMEOUT)
+        logging.info(f"  Querying Google CSE for: '{query}'")
+        response = requests.get(GOOGLE_CSE_API_URL, params=params, timeout=REQUEST_TIMEOUT)
         response.raise_for_status() 
         data = response.json()
         
-        if data and data[0] and data[0][0] == 'urlkey':
-            data = data[1:]
-        
-        snapshots = []
-        for record in data:
-            original_url = record[2]
-            timestamp = record[1]
-            wayback_url = f"http://web.archive.org/web/{timestamp}/{original_url}"
-            snapshots.append({
-                "original_url": original_url,
-                "wayback_url": wayback_url,
-                "timestamp": timestamp,
-                "title_guess": original_url.split('/')[-2].replace('-', ' ').title() if len(original_url.split('/')) > 2 and original_url.split('/')[-2] else ""
-            })
-        return snapshots
+        articles = []
+        if 'items' in data: # CSE API returns results in 'items'
+            for result in data['items']:
+                if 'link' in result and 'title' in result:
+                    if not any(ext in result['link'].lower() for ext in ['.pdf', '.zip', '.exe', '.jpg', '.png', '.gif']):
+                        articles.append({
+                            "title": result['title'],
+                            "link": result['link'],
+                            "snippet": result.get('snippet', ''),
+                            "source_domain": result.get('displayLink', '').replace('www.', '') # Use displayLink for domain
+                        })
+        return articles
     except requests.exceptions.RequestException as e:
-        logging.error(f"Error fetching CDX snapshots for {domain} on {date_str}: {e}")
+        logging.error(f"Error fetching Google CSE results: {e}")
         return []
     except json.JSONDecodeError as e:
-        logging.error(f"JSON decode error for CDX response from {domain} on {date_str}: {e}. Response: {response.text[:200]}...")
+        logging.error(f"JSON decode error from Google CSE response: {e}. Response: {response.text[:200]}...")
         return []
 
-
 def process_image(image_url, article_id):
+    """Downloads, resizes, compresses, and saves an image."""
     try:
         img_data = requests.get(image_url, timeout=REQUEST_TIMEOUT).content
         img = Image.open(io.BytesIO(img_data))
@@ -130,6 +97,7 @@ def process_image(image_url, article_id):
         return None
 
 def is_ai_relevant(title, text):
+    """Checks if the article title or text contains AI-related keywords."""
     title_lower = title.lower()
     text_lower = text.lower()
     for keyword in AI_KEYWORDS:
@@ -137,25 +105,28 @@ def is_ai_relevant(title, text):
             return True
     return False
 
-def scrape_article(wayback_url, original_url, article_id):
+def scrape_article(article_url, article_id, source_domain):
+    """Scrapes a single article using newspaper3k and processes it."""
     try:
         config = newspaper.Config()
         config.browser_user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         config.request_timeout = REQUEST_TIMEOUT
 
-        article = newspaper.Article(wayback_url, config=config)
+        article = newspaper.Article(article_url, config=config)
         article.download()
         article.parse()
         
         if not article.title or not article.text or len(article.text) < 100:
-            logging.info(f"Skipping {wayback_url}: Missing title or too short content.")
+            logging.info(f"Skipping {article_url}: Missing title or too short content.")
             return None
 
         if not is_ai_relevant(article.title, article.text):
-            logging.info(f"Skipping {wayback_url}: Not AI relevant.")
+            logging.info(f"Skipping {article_url}: Not AI relevant after full content check.")
             return None
 
-        summary = ' '.join(article.text.split()[:80]) + '...' if article.text else ''
+        summary = ' '.join(article.text.split()[:80])
+        if len(article.text.split()) > 80:
+            summary += '...'
 
         image_path = None
         if article.top_image:
@@ -165,20 +136,20 @@ def scrape_article(wayback_url, original_url, article_id):
             "id": article_id,
             "title": article.title,
             "summary": summary,
-            "original_url": original_url,
-            "wayback_url": wayback_url,
+            "original_url": article_url,
+            "wayback_url": None, # Not from Wayback Machine
             "image_path": image_path.replace("\\", "/") if image_path else None,
             "publish_date": article.publish_date.isoformat() if article.publish_date else datetime.now().isoformat(),
-            "source": original_url.split('/')[2]
+            "source": source_domain
         }
     except newspaper.article.ArticleException as e:
-        logging.warning(f"Newspaper3k error processing {wayback_url}: {e}")
+        logging.warning(f"Newspaper3k error processing {article_url}: {e}")
         return None
     except requests.exceptions.RequestException as e:
-        logging.warning(f"Request error fetching {wayback_url}: {e}")
+        logging.warning(f"Request error fetching {article_url}: {e}")
         return None
     except Exception as e:
-        logging.error(f"General error processing {wayback_url}: {e}")
+        logging.error(f"General error processing {article_url}: {e}")
         return None
 
 def load_existing_articles():
@@ -202,61 +173,65 @@ def main():
     articles_added_this_run = 0
     attempts = 0
     
-    logging.info("Starting Wayback AI Time Capsule scraping run...")
+    logging.info("Starting Google Custom Search API AI Time Capsule scraping run...")
     
-    while articles_added_this_run < MAX_ARTICLES_PER_RUN and attempts < MAX_DAILY_ATTEMPTS:
+    # Format for Month/Year name in query (e.g., "May 2003")
+    month_names = ["January", "February", "March", "April", "May", "June", 
+                   "July", "August", "September", "October", "November", "December"]
+
+    while articles_added_this_run < MAX_ARTICLES_PER_RUN and attempts < MAX_SEARCH_ATTEMPTS:
         attempts += 1
-        target_date = get_random_past_date(*PAST_YEAR_RANGE)
-        target_date_str = target_date.strftime("%Y%m%d")
-        logging.info(f"Attempt {attempts}/{MAX_DAILY_ATTEMPTS}: Searching for articles from: {target_date.strftime('%Y-%m-%d')}")
         
-        random.shuffle(TARGET_DOMAINS)
+        random_month_date = get_random_past_month(*PAST_YEAR_RANGE)
         
-        for domain in TARGET_DOMAINS:
+        # Create a query string that includes the month and year
+        # This is how we achieve historical date filtering with CSE API
+        target_month_year_str = f"{month_names[random_month_date.month - 1]} {random_month_date.year}"
+        logging.info(f"Attempt {attempts}/{MAX_SEARCH_ATTEMPTS}: Searching for articles from: {target_month_year_str}")
+        
+        search_query = f"\"artificial intelligence\" news {target_month_year_str}"
+        
+        google_cse_results = fetch_google_cse_results(search_query, num_results=10) # Max 10 results per query for CSE
+        
+        if not google_cse_results:
+            logging.info(f"  No relevant search results found for {target_month_year_str}.")
+            time.sleep(2) 
+            continue
+
+        random.shuffle(google_cse_results) 
+        
+        for i, result in enumerate(google_cse_results):
             if articles_added_this_run >= MAX_ARTICLES_PER_RUN:
                 break
+            if result['link'] in existing_original_urls:
+                logging.debug(f"  Skipping already processed: {result['link']}")
+                continue
             
-            logging.info(f"  Fetching snapshots from {domain}...")
-            snapshots = fetch_wayback_snapshots(domain, target_date_str, limit=50) 
-            if not snapshots:
-                logging.info(f"  No snapshots found for {domain} on {target_date_str}.")
-                time.sleep(1) 
+            potential_ai = False
+            combined_text = (result['title'] + " " + result['snippet']).lower()
+            if any(keyword in combined_text for keyword in AI_KEYWORDS):
+                potential_ai = True
+
+            if not potential_ai:
+                logging.debug(f"  Skipping {result['link']}: No immediate AI keywords in title/snippet.")
                 continue
 
-            random.shuffle(snapshots)
+            logging.info(f"  Attempting to scrape {i+1}/{len(google_cse_results)} potential AI articles: {result['link']}")
+            article_id = f"{len(existing_articles) + articles_added_this_run}_{random.randint(1000,9999)}"
             
-            for i, snap in enumerate(snapshots):
+            article_data = scrape_article(result['link'], article_id, result['source_domain'])
+            
+            if article_data:
+                existing_articles.append(article_data)
+                existing_original_urls.add(result['link'])
+                articles_added_this_run += 1
+                logging.info(f"  SUCCESS: Added '{article_data['title']}' (Source: {article_data['source']})")
                 if articles_added_this_run >= MAX_ARTICLES_PER_RUN:
                     break
-                if snap['original_url'] in existing_original_urls:
-                    logging.debug(f"  Skipping already processed: {snap['original_url']}")
-                    continue
-                
-                potential_ai = False
-                if any(keyword in snap['original_url'].lower() for keyword in AI_KEYWORDS):
-                    potential_ai = True
-                elif any(keyword in snap['title_guess'].lower() for keyword in AI_KEYWORDS):
-                     potential_ai = True
+            
+            time.sleep(1.5) 
 
-                if not potential_ai:
-                    logging.debug(f"  Skipping {snap['original_url']}: No immediate AI keywords in URL/guessed title.")
-                    continue
-
-                logging.info(f"  Attempting to scrape {i+1}/{len(snapshots)} potential AI articles from {domain}: {snap['original_url']}")
-                article_id = f"{len(existing_articles) + articles_added_this_run}_{random.randint(1000,9999)}"
-                article_data = scrape_article(snap['wayback_url'], snap['original_url'], article_id)
-                
-                if article_data:
-                    existing_articles.append(article_data)
-                    existing_original_urls.add(snap['original_url'])
-                    articles_added_this_run += 1
-                    logging.info(f"  SUCCESS: Added '{article_data['title']}' ({article_data['source']} from {target_date.strftime('%Y-%m-%d')})")
-                    if articles_added_this_run >= MAX_ARTICLES_PER_RUN:
-                        break
-                
-                time.sleep(2) 
-
-        time.sleep(5) 
+        time.sleep(3) 
         
     save_articles(existing_articles)
     logging.info(f"Finished run. Added {articles_added_this_run} new articles. Total articles in file: {len(existing_articles)}")
