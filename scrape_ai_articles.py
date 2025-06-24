@@ -1,4 +1,4 @@
-# scrape_ai_articles.py (Seventh Revision: Aggressive CSE for Pre-2000 AI)
+# scrape_ai_articles.py (Eighth Revision: Journal & Academic Focus for Pre-2000 AI)
 import requests
 import newspaper
 import os
@@ -15,15 +15,21 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID")    
 GOOGLE_CSE_API_URL = "https://www.googleapis.com/customsearch/v1"
 
-AI_KEYWORDS = ["artificial intelligence", "ai", "machine learning", "deep learning", "neural network", "robotics", "nlp", "computer vision", "AGI", "expert system", "neural computing", "connectionism", "symbolic AI", "AI research", "AI program"] # Added more historical keywords
+# Expanded keywords to catch older terminology and academic context
+AI_KEYWORDS = ["artificial intelligence", "ai", "machine learning", "deep learning", "neural network", 
+               "robotics", "nlp", "computer vision", "AGI", "expert system", "neural computing", 
+               "connectionism", "symbolic AI", "AI research", "AI program", 
+               "computational intelligence", "cognitive science", "knowledge representation",
+               "fuzzy logic", "genetic algorithms"] # Added more
 DATA_FILE = "ai_articles.json"
 IMAGES_DIR = "images/ai_time_capsule"
 
-MAX_ARTICLES_PER_RUN = 1  
-MAX_SEARCH_ATTEMPTS = 150 # Increase attempts to find rare matches
-REQUEST_TIMEOUT = 20      # Slightly lower for more aggressive retries if it's very slow
+MAX_ARTICLES_PER_RUN = 1  # Still aiming for 1 article per successful run, as results are sparse
+MAX_SEARCH_ATTEMPTS = 200 # Increased attempts even further for very old content
+REQUEST_TIMEOUT = 20      
 
-PAST_YEAR_RANGE = (1985, 2000) # Targeting the desired older range
+# Targeting the desired older range: 1985-2000
+PAST_YEAR_RANGE = (1985, 2000) 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -44,9 +50,6 @@ def fetch_google_cse_results(query, num_results=10):
         "cx": GOOGLE_CSE_ID,
         "q": query,
         "num": num_results, 
-        # Add a more specific date restrict if possible, but CSE API's dateRestrict
-        # is for relative dates, not absolute month/year like 'cd_min' in Serper.
-        # So we rely on the query string.
     }
     
     try:
@@ -59,8 +62,9 @@ def fetch_google_cse_results(query, num_results=10):
         if 'items' in data:
             for result in data['items']:
                 if 'link' in result and 'title' in result:
-                    # Filter out very common non-article types
-                    if not any(ext in result['link'].lower() for ext in ['.pdf', '.zip', '.exe', '.jpg', '.png', '.gif', 'forum', 'forums', 'discussion', 'archive.org']):
+                    # *** IMPORTANT CHANGE: Removed .pdf from exclusion list ***
+                    # We will now attempt to scrape PDFs for academic papers.
+                    if not any(ext in result['link'].lower() for ext in ['.zip', '.exe', '.jpg', '.png', '.gif', 'forum', 'forums', 'discussion', 'archive.org']):
                         articles.append({
                             "title": result['title'],
                             "link": result['link'],
@@ -181,10 +185,12 @@ def main():
         target_month_year_str = f"{month_names[random_month_date.month - 1]} {random_month_date.year}"
         logging.info(f"Attempt {attempts}/{MAX_SEARCH_ATTEMPTS}: Searching for articles from: {target_month_year_str}")
         
-        # *** AGGRESSIVELY TARGETED SEARCH QUERY FOR 1985-2000 ***
+        # *** AGGRESSIVELY TARGETED SEARCH QUERY FOR 1985-2000 ACADEMIC/JOURNAL CONTENT ***
+        # Focused on journal sites and academic institutions identified as relevant.
         # Removed the OR logic for site: to simplify and make sure each domain is distinct
         # Added keywords specific to academic publications
-        search_query = f'"artificial intelligence" OR "AI" OR "machine learning" OR "expert system" OR "neural computing" OR "connectionism" OR "symbolic AI" {target_month_year_str} (site:mit.edu OR site:stanford.edu OR site:ieee.org OR site:spectrum.ieee.org OR site:alife.org OR site:wired.com OR site:sciencedaily.com)'
+        search_query = f'("artificial intelligence" OR "AI" OR "machine learning" OR "expert system" OR "neural computing" OR "connectionism" OR "symbolic AI" OR "cognitive science") {target_month_year_str} (site:aaai.org OR site:jair.org OR site:mit.edu OR site:stanford.edu OR site:ieee.org OR site:spectrum.ieee.org OR site:dl.acm.org OR site:acm.org OR site:sciencedirect.com OR site:onlinelibrary.wiley.com OR site:wired.com OR site:sciencedaily.com)'
+        
         # Note: wired.com and sciencedaily.com have limited content before late 90s, but include for completeness.
         # You can manually test this query in Google.com to see what kind of results you get.
         
@@ -204,8 +210,8 @@ def main():
                 logging.debug(f"  Skipping already processed: {result['link']}")
                 continue
             
-            # Simple check if the link itself indicates non-article content
-            if any(term in result['link'].lower() for term in ['forum', 'forums', 'discussion', 'comments', 'blog', 'index.html', '/tag/', '/category/']):
+            # Expanded filter if the link itself indicates non-article content
+            if any(term in result['link'].lower() for term in ['forum', 'forums', 'discussion', 'comments', 'blog', 'index.html', '/tag/', '/category/', 'masthead', 'contact', 'about', 'member']):
                 logging.debug(f"  Skipping {result['link']}: Appears to be a non-article page type.")
                 continue
 
