@@ -19,7 +19,7 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID")    
 GOOGLE_CSE_API_URL = "https://www.googleapis.com/customsearch/v1"
 
-GEMINI_MODEL = "models/gemini-1.0-flash-latest" 
+GEMINI_MODEL = "models/gemini-2.0-flash-latest" 
 
 GENERATED_ARTICLES_DIR = "generated_articles"
 INDEX_FILE = "ai_analyses_index.json" 
