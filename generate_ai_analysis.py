@@ -44,7 +44,7 @@ MAX_SEARCH_ATTEMPTS_PER_RUN = 5 # Changed from 100 to 5 to avoid hitting 429 err
 REQUEST_TIMEOUT = 25      
 
 # --- CRITICAL PIVOT: New, more reliable historical date range ---
-PAST_YEAR_RANGE = (2000, 2015) # Focusing on 2000-2015 for better content availability
+PAST_YEAR_RANGE = (1990, 2015) # Focusing on 2000-2015 for better content availability
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
