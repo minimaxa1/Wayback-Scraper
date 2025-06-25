@@ -1,4 +1,4 @@
-# generate_ai_analysis.py (Ultimate Aggressive Filtering & Source Prioritization)
+# generate_ai_analysis.py (Pivot to More Reliable Historical Range: 2000-2015)
 
 import requests
 import newspaper
@@ -19,7 +19,7 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID")    
 GOOGLE_CSE_API_URL = "https://www.googleapis.com/customsearch/v1"
 
-GEMINI_MODEL = "models/gemini-1.5-flash-latest" 
+GEMINI_MODEL = "models/gemini-1.0-flash-latest" 
 
 GENERATED_ARTICLES_DIR = "generated_articles"
 INDEX_FILE = "ai_analyses_index.json" 
@@ -34,17 +34,17 @@ AI_KEYWORDS = ["artificial intelligence", "ai", "machine learning", "deep learni
                "AI programming", "AI applications", "logic programming", "neural processing",
                "expert systems", "knowledge engineering", "reasoning system", "intelligent robotics",
                "automated reasoning", "theorem proving", "computer chess", "speech recognition", "image processing",
-               "robot vision"] # Further expanded, focusing on older terms
+               "robot vision", "data science"] # Further expanded, but will be more relevant in newer range
 
-# Prioritize "paper" and "proceedings" for older academic content
-PUBLICATION_KEYWORDS = ["paper", "proceedings", "journal", "report", "technical report", "conference", "symposium", "thesis", "dissertation", "review", "abstract"] 
-# Removed "magazine" and "article" from primary publication keywords to reduce generic web content
+PUBLICATION_KEYWORDS = ["paper", "proceedings", "journal", "report", "technical report", "conference", "symposium", "magazine", "article", "thesis", "dissertation", "review", "abstract", "news"] # Re-added "magazine" and "article" as they are relevant in this new range
 
-MAX_SCRAPED_ARTICLES_FOR_SYNTHESIS = 3 # Increased to 3 again for richer input, now that filtering is stricter
-MAX_SEARCH_ATTEMPTS_PER_RUN = 100 
+MAX_SCRAPED_ARTICLES_FOR_SYNTHESIS = 3 
+# --- FIX: Significantly reduced MAX_SEARCH_ATTEMPTS_PER_RUN to stay within free quota ---
+MAX_SEARCH_ATTEMPTS_PER_RUN = 5 # Changed from 100 to 5 to avoid hitting 429 errors quickly
 REQUEST_TIMEOUT = 25      
 
-PAST_YEAR_RANGE = (1985, 2000) 
+# --- CRITICAL PIVOT: New, more reliable historical date range ---
+PAST_YEAR_RANGE = (2000, 2015) # Focusing on 2000-2015 for better content availability
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -86,7 +86,9 @@ def fetch_google_cse_results(query, num_results=10):
         if 'items' in data:
             for item in data['items']:
                 if 'link' in item and 'title' in item:
-                    # --- EVEN MORE AGGRESSIVE URL FILTERING ---
+                    # --- REVISED URL FILTERING FOR 2000-2015 RANGE ---
+                    # Removed some of the most aggressive filters that might be too strict for this era.
+                    # Kept filters for social media, docs, generic pages.
                     EXCLUDE_URL_TERMS = [
                         '.zip', '.exe', '.jpg', '.png', '.gif', '.mp3', '.mp4', '.avi', # Media files
                         'forum', 'forums', 'discussion', 'archive.org', # Community/Archival general (too broad often)
@@ -99,20 +101,17 @@ def fetch_google_cse_results(query, num_results=10):
                         'docs.', 'api.', 'dev.', 'help.', 'solutions', 'products', 'services', 
                         'faq', 'events', 'webinars', 'tutorials', 'guides', 'overview', 'definition', 'what-is', 
                         'wikipedia.org', 'wikidata.org', 'wikibooks.org', # Wikipedia/Wiki sites
-                        'energy.gov', 'ifr.org', 'ri.cmu.edu', # Specific problematic modern sites
-                        'youtube.com', 'youtu.be', 'vimeo.com', # Video platforms
-                        '/tag/', '/category/', '/author/', '/feed/', '/rss/', # Common blog/taxonomy structures
-                        'directory', 'index', 'listing', 'search', 'results', 'login', 'signup' # General site elements
+                        # Removed specific corporate sites that are less problematic in newer ranges if their content is relevant
+                        # e.g., 'energy.gov', 'ifr.org', 'ri.cmu.edu' (keep these if they produce relevant content from 2000s)
                     ]
                     
                     if any(term in item['link'].lower() for term in EXCLUDE_URL_TERMS):
-                        logging.debug(f"  Skipping {item['link']}: Excluded by aggressive URL filter.")
+                        logging.debug(f"  Skipping {item['link']}: Excluded by URL filter.")
                         continue
                     
-                    # Heuristic: If URL path has very few slashes, it's often a main page or shallow, not a deep article.
-                    # This helps filter out homepages, "about us", etc.
-                    if item['link'].count('/') <= 3 and not any(d in item['link'].lower() for d in ['paper', 'article', 'journal', 'report', 'proceedings']):
-                        logging.debug(f"  Skipping {item['link']}: Appears to be a generic base domain or shallow path (few slashes).")
+                    # Heuristic for too-short URL paths indicating not a deep article - keep this
+                    if item['link'].count('/') <= 3 and not any(d in item['link'].lower() for d in ['paper', 'article', 'journal', 'report', 'proceedings', 'news']):
+                        logging.debug(f"  Skipping {item['link']}: Appears to be a generic base domain or shallow path.")
                         continue
 
                     results.append({
@@ -131,7 +130,7 @@ def fetch_google_cse_results(query, num_results=10):
 
 def get_header_image_url(article_id):
     try:
-        random_unsplash_url = f"https://source.unsplash.com/random/1080x720?technology,abstract,futuristic,circuit,neural,network,data,ai,robotics,vintage,retro,history,cyberpunk,computing,classic,digital,logic,processor,intellectual&sig={random.randint(1,1000000)}" 
+        random_unsplash_url = f"https://source.unsplash.com/random/1080x720?technology,abstract,futuristic,circuit,neural,network,data,ai,robotics,computing,digital,logic,processor,machine,innovation&sig={random.randint(1,1000000)}" 
         return random_unsplash_url
     except Exception as e:
         logging.warning(f"Could not get random Unsplash image: {e}")
@@ -408,6 +407,9 @@ def main():
         ai_search_terms = " OR ".join(f'"{kw}"' for kw in AI_KEYWORDS) 
         publication_search_terms = " OR ".join(f'"{kw}"' for kw in PUBLICATION_KEYWORDS) 
 
+        # --- REFINED TARGETED DOMAINS ---
+        # Excluded problematic general corporate/organizational sites.
+        # Focused on true academic/research/journal sources.
         targeted_domains = [
             "aaai.org", "jair.org", "dl.acm.org", "acm.org", 
             "mit.edu", "stanford.edu", "cmu.edu", "berkeley.edu", 
@@ -436,6 +438,7 @@ def main():
             if len(scraped_articles_for_synthesis) >= MAX_SCRAPED_ARTICLES_FOR_SYNTHESIS:
                 break 
 
+            # --- Aggressive URL Filtering ---
             if any(term in result['link'].lower() for term in [
                 '.zip', '.exe', '.jpg', '.png', '.gif', '.mp3', '.mp4', '.avi', 
                 'forum', 'forums', 'discussion', 'archive.org', 'support.google.com', 
